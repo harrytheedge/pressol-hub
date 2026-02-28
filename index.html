@@ -45,12 +45,13 @@
         /* Hide cursor when controls hidden (fullscreen) */
         #player-wrapper.hide-cursor { cursor: none; }
 
-        /* ① Staggered entrance */
+        /* ① Staggered entrance (triggered via .go class after intro) */
         @keyframes fadeUp {
             from { opacity: 0; transform: translateY(18px); }
             to   { opacity: 1; transform: translateY(0); }
         }
-        .fade-up { opacity: 0; animation: fadeUp 0.55s ease forwards; }
+        .fade-up     { opacity: 0; }
+        .fade-up.go  { animation: fadeUp 0.55s ease forwards; }
 
         /* ② Active playlist item */
         .playlist-active { border-left: 3px solid #E97600 !important; padding-left: 10px; background: rgba(0,105,179,0.04); border-radius: 2px; }
@@ -60,8 +61,8 @@
         #sidebar-list .group .aspect-video img { transition: transform 0.35s ease; }
         #sidebar-list .group:hover .aspect-video img { transform: scale(1.05); }
 
-        /* ④ Product name fade */
-        #display-name, #display-sku { transition: opacity 0.18s ease; }
+        /* ④ Product name + subline fade */
+        #display-name, #display-subline, #display-subline-sep, #display-sku { transition: opacity 0.25s ease; }
 
         /* ⑤ Language switch — slide out right / slide in from left */
         @keyframes langSlideOut {
@@ -139,21 +140,38 @@
         /* ── Cinematic intro overlay ─────────────────────────────── */
         #intro-overlay {
             position: fixed; inset: 0; z-index: 1000;
-            background: radial-gradient(ellipse at 50% 46%, #e8f3fc 0%, #ffffff 58%);
+            background: #ffffff;
             display: flex; align-items: center; justify-content: center;
         }
+        /* Logo materialises from white-hot blur → crisp PRESSOL blue */
         @keyframes logoApproach {
-            0%   { transform: scale(0.60) translateY(14px); filter: blur(26px); opacity: 0; }
-            18%  { opacity: 1; }
-            82%  { transform: scale(0.985) translateY(0.5px); filter: blur(0.4px); }
-            100% { transform: scale(1.0)  translateY(0px);   filter: blur(0px);   opacity: 1; }
+            0%   { transform: scale(0.48) translateY(24px); filter: blur(38px) brightness(9); opacity: 0; }
+            9%   { opacity: 1; filter: blur(30px) brightness(6); }
+            68%  { transform: scale(0.97)  translateY(1.5px); filter: blur(1px)   brightness(1.05); }
+            100% { transform: scale(1.0)   translateY(0px);   filter: blur(0px)   brightness(1);    opacity: 1; }
         }
         @keyframes introDismiss {
             0%   { opacity: 1; }
-            100% { opacity: 0; pointer-events: none; }
+            100% { opacity: 0; }
         }
-        #intro-logo { animation: logoApproach 2.6s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
-        #intro-overlay.dismiss { animation: introDismiss 1.0s ease forwards; }
+        #intro-logo {
+            animation: logoApproach 4.4s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+            max-width: 20vw;   /* ≤20 % width → ≥40 % margin each side on desktop */
+            min-width: 110px;
+        }
+        #intro-overlay.dismiss { animation: introDismiss 0.85s ease forwards; }
+
+        /* ── Vimeo overlay: blocks logo redirect, adds our FS button ─ */
+        #vimeo-overlay { position: absolute; inset: 0; z-index: 4; pointer-events: none; display: none; }
+        #vimeo-logo-block { position: absolute; bottom: 0; left: 0; width: 80px; height: 54px; pointer-events: auto; cursor: default; }
+        #vimeo-fs-btn {
+            position: absolute; bottom: 10px; right: 10px;
+            width: 36px; height: 36px; pointer-events: auto;
+            background: rgba(0,0,0,0.50); border: none; cursor: pointer;
+            border-radius: 4px; color: white; display: flex; align-items: center; justify-content: center;
+            transition: background 0.2s;
+        }
+        #vimeo-fs-btn:hover { background: rgba(0,0,0,0.75); }
 
         /* ── Nav scroll hint (right-edge fade, mobile only) ────── */
         .nav-scroll-wrap { position: relative; flex: 1; min-width: 0; }
@@ -213,6 +231,13 @@
 
                     <!-- White fade overlay for smooth transitions -->
                     <div id="fade-overlay" style="position:absolute;inset:0;background:white;opacity:0;transition:opacity 0.28s ease;pointer-events:none;z-index:5;"></div>
+                    <!-- Vimeo overlay: blocks V-logo redirect, provides fullscreen button -->
+                    <div id="vimeo-overlay">
+                        <div id="vimeo-logo-block"></div>
+                        <button id="vimeo-fs-btn" onclick="toggleFullscreen(); event.stopPropagation()" title="Vollbild">
+                            <svg style="width:20px;height:20px;" fill="currentColor" viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+                        </button>
+                    </div>
 
                     <!-- Compact control bar (MP4 only) -->
                     <div id="ctrl-bar">
@@ -245,10 +270,14 @@
                         </div>
                     </div>
                 </div>
-                <div class="mt-6 flex items-baseline gap-3 border-l-4 border-pBlue pl-4">
-                    <span id="display-name" class="text-lg md:text-xl font-semibold"></span>
-                    <span id="display-separator" class="text-pGray font-light">|</span>
-                    <span id="display-sku" class="text-lg md:text-xl font-normal text-pAnthrazit/60"></span>
+                <div class="mt-6 border-l-4 border-pBlue pl-4">
+                    <div class="flex flex-wrap items-baseline gap-x-3">
+                        <span id="display-name" class="text-lg md:text-xl font-semibold leading-snug"></span>
+                        <span id="display-subline-sep" class="text-pGray font-light" style="display:none">|</span>
+                        <span id="display-subline" class="text-base md:text-lg font-normal text-pAnthrazit/65 leading-snug" style="display:none"></span>
+                        <span id="display-separator" class="text-pGray font-light">|</span>
+                        <span id="display-sku" class="text-base md:text-lg font-normal text-pAnthrazit/55"></span>
+                    </div>
                 </div>
                 <div id="video-desc-box" class="mt-3 pl-4">
                     <div id="video-desc-inner" class="desc-collapsed">
@@ -294,9 +323,9 @@
                     '19_698': 'Durchflusszähler digital', '07_623': 'Messbecher 3 l', '13_012': 'Fasspumpe SRL', '18_082': 'Z-Drehgelenk',
                     '19_768': 'Sprüheinheit fahrbar', '18_616_051': 'Fettpumpe 15:1', '18_516_051': 'Fett- und Silikonpumpe',
                     '18_870': 'Fußventil-Umbausatz', '19_519': 'Fassverschraubung M 62', '19_529': 'Fassverschraubung M 60', '23_296': 'Zähleranschluss', '23_295': 'Zählerkit',
-                    'messbecher': 'Messbecher 2026', 'messbecher_gastro': 'Messbecher Gastro', 'kanisterentlueftung': 'Kanisterentlüftung',
+                    'messbecher': 'PRESSOL Messbecher 2026', 'messbecher_gastro': 'Sternekoch Lucky Maurer über Messbecher', 'kanisterentlueftung': 'Kanisterentlüftung',
                     'adblue_fasspumpe': 'AdBlue® Fasspumpe', 'tankfixx': 'TankFIXX Installation',
-                    'manufacturing_specialists': 'Manufacturing Specialists', 'from_idea_to_reality': 'Von der Idee zur Realität' },
+                    'manufacturing_specialists': 'Manufacturing Specialists', 'from_idea_to_reality': 'From Idea to Reality' },
 
             'EN': { 'Playlist': 'PLAYLIST', 'SKU': 'Art. no.', 'Read_more': 'Read more',
                     'Schmiergeräte': 'Lubrication', 'Tankanlagen': 'Tank Systems', 'Werkstatt': 'Workshop', 'Pneumatik': 'Pneumatics', 'Zubehör': 'Accessories',
@@ -306,7 +335,7 @@
                     '19_698': 'Digital flow meter', '07_623': 'Measuring jug 3 l', '13_012': 'Barrel pump SRL', '18_082': 'Z-swivel joint',
                     '19_768': 'Spray unit mobile', '18_616_051': 'Grease pump 15:1', '18_516_051': 'Grease + silicone pump',
                     '18_870': 'Foot valve kit', '19_519': 'Barrel screw coupling M 62', '19_529': 'Barrel screw coupling M 60', '23_296': 'Meter connection', '23_295': 'Meter kit',
-                    'messbecher': 'Measuring Jug 2026', 'messbecher_gastro': 'Measuring Jug – Gastro', 'kanisterentlueftung': 'Container Ventilation',
+                    'messbecher': 'PRESSOL Measuring Jug 2026', 'messbecher_gastro': 'Top Chef Lucky Maurer on Measuring Jugs', 'kanisterentlueftung': 'Container Ventilation',
                     'adblue_fasspumpe': 'AdBlue® Barrel Pump', 'tankfixx': 'TankFIXX Installation',
                     'manufacturing_specialists': 'Manufacturing Specialists', 'from_idea_to_reality': 'From Idea to Reality' },
 
@@ -318,9 +347,9 @@
                     '19_698': 'Digitální průtokoměr', '07_623': 'Odměrka 3 l', '13_012': 'Sudové čerpadlo', '18_082': 'Z-otočný kloub',
                     '19_768': 'Mobilní postřikovač', '18_616_051': 'Čerpadlo 15:1', '18_516_051': 'Čerpadlo silikon',
                     '18_870': 'Sada ventilu', '19_519': 'Šroubení sudu M 62', '19_529': 'Šroubení sudu M 60', '23_296': 'Přípojka', '23_295': 'Sada',
-                    'messbecher': 'Odměrka 2026', 'messbecher_gastro': 'Odměrka gastro', 'kanisterentlueftung': 'Odvzdušnění kanistrů',
+                    'messbecher': 'PRESSOL Odměrka 2026', 'messbecher_gastro': 'Šéfkuchař Lucky Maurer o odměrkách', 'kanisterentlueftung': 'Odvzdušnění kanistrů',
                     'adblue_fasspumpe': 'AdBlue® sudové čerpadlo', 'tankfixx': 'TankFIXX instalace',
-                    'manufacturing_specialists': 'Výrobní specialisté', 'from_idea_to_reality': 'Od myšlenky k realitě' },
+                    'manufacturing_specialists': 'Manufacturing Specialists', 'from_idea_to_reality': 'From Idea to Reality' },
 
             'NL': { 'Playlist': 'AFSPEELLIJST', 'SKU': 'Art. nr.', 'Read_more': 'Meer lezen',
                     'Schmiergeräte': 'Smeertechniek', 'Tankanlagen': 'Tanksystemen', 'Werkstatt': 'Werkplaats', 'Pneumatik': 'Pneumatiek', 'Zubehör': 'Toebehoren',
@@ -330,9 +359,9 @@
                     '19_698': 'Digitale debietmeter', '07_623': 'Maatbeker 3 l', '13_012': 'Vatpomp SRL', '18_082': 'Z-draaischarnier',
                     '19_768': 'Spuitunit mobiel', '18_616_051': 'Vetpomp 15:1', '18_516_051': 'Siliconenpomp',
                     '18_870': 'Voetventielset', '19_519': 'Vatkoppeling M 62', '19_529': 'Vatkoppeling M 60', '23_296': 'Meteraansluiting', '23_295': 'Meterkit',
-                    'messbecher': 'Maatbeker 2026', 'messbecher_gastro': 'Maatbeker gastro', 'kanisterentlueftung': 'Kanisterventilatie',
+                    'messbecher': 'PRESSOL Maatbeker 2026', 'messbecher_gastro': 'Sterrenkok Lucky Maurer over Maatbekers', 'kanisterentlueftung': 'Kanisterventilatie',
                     'adblue_fasspumpe': 'AdBlue® vatpomp', 'tankfixx': 'TankFIXX installatie',
-                    'manufacturing_specialists': 'Productiespecialisten', 'from_idea_to_reality': 'Van idee naar realiteit' },
+                    'manufacturing_specialists': 'Manufacturing Specialists', 'from_idea_to_reality': 'From Idea to Reality' },
 
             'FR': { 'Playlist': 'LISTE', 'SKU': 'Réf.', 'Read_more': 'Lire la suite',
                     'Schmiergeräte': 'Lubrification', 'Tankanlagen': 'Stations-service', 'Werkstatt': 'Atelier', 'Pneumatik': 'Pneumatique', 'Zubehör': 'Accessoires',
@@ -342,9 +371,9 @@
                     '19_698': 'Compteur digital', '07_623': 'Mesure 3 l', '13_012': 'Pompe fût', '18_082': 'Raccord Z',
                     '19_768': 'Pulvérisateur mobile', '18_616_051': 'Pompe 15:1', '18_516_051': 'Pompe silicone',
                     '18_870': 'Kit soupape', '19_519': 'Bonde fût M 62', '19_529': 'Bonde fût M 60', '23_296': 'Raccord compteur', '23_295': 'Kit compteur',
-                    'messbecher': 'Verre gradué 2026', 'messbecher_gastro': 'Verre gradué – Gastro', 'kanisterentlueftung': 'Ventilation jerrican',
+                    'messbecher': 'PRESSOL Verre Gradué 2026', 'messbecher_gastro': 'Chef Étoilé Lucky Maurer et les Verres Gradués', 'kanisterentlueftung': 'Ventilation jerrican',
                     'adblue_fasspumpe': 'Pompe fût AdBlue®', 'tankfixx': 'TankFIXX installation',
-                    'manufacturing_specialists': 'Spécialistes fabrication', 'from_idea_to_reality': "De l'idée à la réalité" },
+                    'manufacturing_specialists': 'Manufacturing Specialists', 'from_idea_to_reality': 'From Idea to Reality' },
 
             'ES': { 'Playlist': 'LISTA', 'SKU': 'Ref.', 'Read_more': 'Leer más',
                     'Schmiergeräte': 'Lubricación', 'Tankanlagen': 'Tanques', 'Werkstatt': 'Taller', 'Pneumatik': 'Neumática', 'Zubehör': 'Accesorios',
@@ -354,9 +383,9 @@
                     '19_698': 'Medidor digital', '07_623': 'Jarra graduada 3 l', '13_012': 'Bomba bidón SRL', '18_082': 'Junta en Z',
                     '19_768': 'Unidad de pulverización', '18_616_051': 'Bomba 15:1', '18_516_051': 'Bomba silicona',
                     '18_870': 'Kit de válvula', '19_519': 'Tapón bidón M 62', '19_529': 'Tapón bidón M 60', '23_296': 'Conexión medidor', '23_295': 'Kit medidor',
-                    'messbecher': 'Jarra graduada 2026', 'messbecher_gastro': 'Jarra graduada – Gastro', 'kanisterentlueftung': 'Ventilación bidón',
+                    'messbecher': 'PRESSOL Jarra Graduada 2026', 'messbecher_gastro': 'Chef Estrella Lucky Maurer sobre Jarras Graduadas', 'kanisterentlueftung': 'Ventilación bidón',
                     'adblue_fasspumpe': 'Bomba bidón AdBlue®', 'tankfixx': 'TankFIXX instalación',
-                    'manufacturing_specialists': 'Especialistas fabricación', 'from_idea_to_reality': 'De la idea a la realidad' },
+                    'manufacturing_specialists': 'Manufacturing Specialists', 'from_idea_to_reality': 'From Idea to Reality' },
 
             'PT': { 'Playlist': 'LISTA', 'SKU': 'Ref.', 'Read_more': 'Ler mais',
                     'Schmiergeräte': 'Lubrificação', 'Tankanlagen': 'Tanques', 'Werkstatt': 'Oficina', 'Pneumatik': 'Pneumática', 'Zubehör': 'Acessórios',
@@ -366,9 +395,9 @@
                     '19_698': 'Medidor digital', '07_623': 'Medida graduada 3 l', '13_012': 'Bomba barril SRL', '18_082': 'Junta rotativa em Z',
                     '19_768': 'Unidade pulverização', '18_616_051': 'Bomba 15:1', '18_516_051': 'Bomba silicone',
                     '18_870': 'Kit válvula', '19_519': 'Batoque barril M 62', '19_529': 'Batoque barril M 60', '23_296': 'Ligação medidor', '23_295': 'Kit medidor',
-                    'messbecher': 'Copo medidor 2026', 'messbecher_gastro': 'Copo medidor – Gastro', 'kanisterentlueftung': 'Ventilação recipiente',
+                    'messbecher': 'PRESSOL Copo Medidor 2026', 'messbecher_gastro': 'Chef Estrelado Lucky Maurer sobre Copos Medidores', 'kanisterentlueftung': 'Ventilação recipiente',
                     'adblue_fasspumpe': 'Bomba barril AdBlue®', 'tankfixx': 'TankFIXX instalação',
-                    'manufacturing_specialists': 'Especialistas fabrico', 'from_idea_to_reality': 'Da ideia à realidade' }
+                    'manufacturing_specialists': 'Manufacturing Specialists', 'from_idea_to_reality': 'From Idea to Reality' }
         };
 
         // ── Video descriptions (20 products + 7 Vimeo videos × 7 languages) ────
@@ -585,6 +614,24 @@
             return d;
         }
 
+        // ── Video sublines (optional second line shown after main name) ──────
+        const videoSublines = {
+            'from_idea_to_reality': {
+                DE: 'Der neue PRESSOL Firmensitz',
+                EN: 'The new PRESSOL Headquarters',
+                CZ: 'Nové sídlo společnosti PRESSOL',
+                NL: 'Het nieuwe PRESSOL hoofdkantoor',
+                FR: 'Le nouveau siège de PRESSOL',
+                ES: 'La nueva sede de PRESSOL',
+                PT: 'A nova sede da PRESSOL'
+            }
+        };
+
+        function getSubline(id) {
+            if (!videoSublines[id]) return '';
+            return videoSublines[id][activeLang] || videoSublines[id]['EN'] || '';
+        }
+
         function expandDesc() {
             document.getElementById('video-desc-inner').classList.replace('desc-collapsed','desc-expanded');
             document.getElementById('video-desc-more').style.display = 'none';
@@ -706,18 +753,27 @@
             const activeItem = document.querySelector(`#sidebar-list [data-vid="${id}"]`);
             if (activeItem) activeItem.classList.add('playlist-active');
 
-            // ④ Product name + SKU
-            const nameEl = document.getElementById('display-name');
-            const skuEl  = document.getElementById('display-sku');
-            const sepEl  = document.getElementById('display-separator');
+            // ④ Product name + subline + SKU
+            const nameEl    = document.getElementById('display-name');
+            const sublineEl = document.getElementById('display-subline');
+            const sublineSep= document.getElementById('display-subline-sep');
+            const skuEl     = document.getElementById('display-sku');
+            const sepEl     = document.getElementById('display-separator');
             const updateMeta = () => {
+                const sub = getSubline(id);
                 nameEl.innerText = t(id);
-                skuEl.innerText  = isVimeo ? '' : t('SKU') + ' ' + id.replace(/_/g, ' ');
+                if (sublineEl) {
+                    sublineEl.innerText = sub;
+                    sublineEl.style.display     = sub ? '' : 'none';
+                    if (sublineSep) sublineSep.style.display = sub ? '' : 'none';
+                }
+                skuEl.innerText = isVimeo ? '' : t('SKU') + ' ' + id.replace(/_/g, ' ');
                 if (sepEl) sepEl.style.display = isVimeo ? 'none' : '';
             };
+            const metaEls = [nameEl, sublineEl, sublineSep, skuEl].filter(Boolean);
             if (!isAuto && nameEl.innerText) {
-                nameEl.style.opacity = '0'; skuEl.style.opacity = '0';
-                setTimeout(() => { updateMeta(); nameEl.style.opacity = '1'; skuEl.style.opacity = '1'; }, 190);
+                metaEls.forEach(el => el.style.opacity = '0');
+                setTimeout(() => { updateMeta(); metaEls.forEach(el => el.style.opacity = '1'); }, 250);
             } else {
                 updateMeta();
             }
@@ -731,6 +787,7 @@
             if (moreBtn) { moreBtn.style.display = ''; moreBtn.textContent = t('Read_more') + ' ↓'; }
 
             const doSwitch = () => {
+                const vimeoOverlay = document.getElementById('vimeo-overlay');
                 if (isVimeo) {
                     // Stop MP4 and show Vimeo iframe
                     player.pause();
@@ -738,13 +795,15 @@
                     player.style.display = 'none';
                     if (bar) bar.classList.remove('visible');
                     vimeoEl.style.display = 'block';
+                    if (vimeoOverlay) vimeoOverlay.style.display = 'block';
                     const vid = vimeoMap[id][activeLang] || vimeoMap[id]['EN'];
-                    vimeoEl.src = `https://player.vimeo.com/video/${vid}?autoplay=1&title=0&byline=0&portrait=0&dnt=1`;
+                    vimeoEl.src = `https://player.vimeo.com/video/${vid}?autoplay=1&title=0&byline=0&portrait=0&vimeo_logo=0&dnt=1`;
                     if (fade) fade.style.opacity = '0';
                 } else {
                     // Stop Vimeo and show MP4 player
                     vimeoEl.src = '';
                     vimeoEl.style.display = 'none';
+                    if (vimeoOverlay) vimeoOverlay.style.display = 'none';
                     player.style.display = 'block';
                     player.src = `https://videohub.pressol.iol.eu/frames/${id}_${activeLang}.mp4`;
                     player.addEventListener('canplay', () => {
@@ -971,18 +1030,30 @@
             }
         }
 
+        // ── Trigger staggered page-content reveal ────────────────────────
+        function triggerFadeUps() {
+            document.querySelectorAll('.fade-up').forEach(el => el.classList.add('go'));
+        }
+
         // ── Cinematic intro (once per session) ───────────────────────────
         let _introPlaying = false;
         (function initIntro() {
             const overlay = document.getElementById('intro-overlay');
-            if (!overlay || overlay.style.display === 'none') return;
+            if (!overlay || overlay.style.display === 'none') {
+                triggerFadeUps(); // repeat visit – reveal page immediately
+                return;
+            }
             _introPlaying = true;
             sessionStorage.setItem('ph_intro', '1');
-            // After logo settles: brief pause then fade out
+            // Logo approach: 4.4 s → settle for ~0.6 s → start dismiss
             setTimeout(() => {
+                overlay.style.pointerEvents = 'none'; // stop overlay intercepting events during fade
                 overlay.classList.add('dismiss');
-                setTimeout(() => { overlay.remove(); _introPlaying = false; }, 1050);
-            }, 2600);
+                // Start page content fade while overlay is still partly visible (nice crossfade)
+                setTimeout(triggerFadeUps, 500);
+                // Remove overlay from DOM after dismiss animation completes
+                setTimeout(() => { overlay.remove(); _introPlaying = false; }, 900);
+            }, 5000);
         })();
 
         // ── Nav scroll hint + peek animation (mobile, once per session) ──
@@ -998,7 +1069,7 @@
             // One-time peek animation so users discover the scroll
             if (window.innerWidth < 768 && !sessionStorage.getItem('ph_nav_peeked')) {
                 sessionStorage.setItem('ph_nav_peeked', '1');
-                const delay = _introPlaying ? 3600 : 700;
+                const delay = _introPlaying ? 6200 : 700;
                 setTimeout(() => {
                     nav.scrollTo({ left: 90, behavior: 'smooth' });
                     setTimeout(() => nav.scrollTo({ left: 0, behavior: 'smooth' }), 950);
@@ -1009,6 +1080,32 @@
         renderLangs();
         renderNav();
         loadCategory(activeCat);
+
+        // ── Domain guard ─────────────────────────────────────────────────
+        (function() {
+            const ok = ['hub.pressol.iol.eu','localhost','127.0.0.1'];
+            if (!ok.some(d => location.hostname === d || location.hostname.endsWith('.' + d))) {
+                document.body.style.cssText = 'background:#f5f5f5;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;';
+                document.body.innerHTML = '<p style="font-family:sans-serif;color:#aaa;font-size:14px;text-align:center;">© PRESSOL Lubrication Products GmbH<br>Confidential – Unauthorized reproduction prohibited.</p>';
+            }
+        })();
+
+        // ── Anti copy-paste shortcuts ────────────────────────────────────
+        document.addEventListener('keydown', function(e) {
+            const k = e.key;
+            if (k === 'F12') { e.preventDefault(); return; }
+            if (e.ctrlKey || e.metaKey) {
+                if (['u','U','s','S'].includes(k)) { e.preventDefault(); return; }
+                if (e.shiftKey && ['I','J','C','i','j','c'].includes(k)) { e.preventDefault(); return; }
+            }
+        }, true);
+        document.addEventListener('contextmenu', function(e) { e.preventDefault(); });
     </script>
 </body>
+<!--
+    PRESSOL Hub – Confidential Internal MVP
+    © 2024-2026 PRESSOL Lubrication Products GmbH
+    All rights reserved. Unauthorized copying, reproduction or redistribution
+    of this software, via any medium, is strictly prohibited.
+-->
 </html>
