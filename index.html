@@ -734,6 +734,14 @@
                     </div>
                 </div>`;
             }).join('');
+
+            // fade-up items need .go to become visible (lang-enter has its own CSS animation)
+            if (animCls === 'fade-up') {
+                requestAnimationFrame(() => requestAnimationFrame(() => {
+                    list.querySelectorAll('.fade-up').forEach(el => el.classList.add('go'));
+                }));
+            }
+
             switchVideo(cats[cat][0], true);
             // Load real Vimeo thumbnails async for Vimeo categories
             if (cats[cat].some(id => vimeoMap[id])) loadVimeoThumbs();
