@@ -145,21 +145,22 @@
         }
         /* Logo materialises from white-hot blur → crisp PRESSOL blue */
         @keyframes logoApproach {
-            0%   { transform: scale(0.48) translateY(24px); filter: blur(38px) brightness(9); opacity: 0; }
-            9%   { opacity: 1; filter: blur(30px) brightness(6); }
-            68%  { transform: scale(0.97)  translateY(1.5px); filter: blur(1px)   brightness(1.05); }
-            100% { transform: scale(1.0)   translateY(0px);   filter: blur(0px)   brightness(1);    opacity: 1; }
+            0%   { transform: scale(0.46) translateY(26px); filter: blur(65px) brightness(12); opacity: 0; }
+            8%   { opacity: 1; filter: blur(50px) brightness(7); }
+            70%  { transform: scale(0.97)  translateY(1.5px); filter: blur(1.5px)  brightness(1.04); }
+            100% { transform: scale(1.0)   translateY(0px);   filter: blur(0px)    brightness(1);    opacity: 1; }
         }
         @keyframes introDismiss {
             0%   { opacity: 1; }
             100% { opacity: 0; }
         }
         #intro-logo {
-            animation: logoApproach 4.4s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-            max-width: 20vw;   /* ≤20 % width → ≥40 % margin each side on desktop */
-            min-width: 110px;
+            animation: logoApproach 3.0s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+            /* Width-only sizing — height auto = no squishing */
+            width: clamp(120px, 26vw, 320px);
+            height: auto;
         }
-        #intro-overlay.dismiss { animation: introDismiss 0.85s ease forwards; }
+        #intro-overlay.dismiss { animation: introDismiss 0.75s ease forwards; }
 
         /* ── Vimeo overlay: blocks logo redirect, adds our FS button ─ */
         #vimeo-overlay { position: absolute; inset: 0; z-index: 4; pointer-events: none; display: none; }
@@ -188,8 +189,7 @@
 
     <!-- ── Cinematic intro overlay ─────────────────────────────────── -->
     <div id="intro-overlay">
-        <img id="intro-logo" src="pressol_logo.png" alt="PRESSOL"
-             style="height: clamp(72px, 16vw, 148px); width: auto;">
+        <img id="intro-logo" src="pressol_logo.png" alt="PRESSOL">
     </div>
     <script>
         // Hide immediately on repeat visits (no flash)
@@ -1003,31 +1003,43 @@
             }
         });
 
-        // ── Vimeo thumbnail loader ────────────────────────────────────────
+        // ── Vimeo thumbnail loader (parallel fetches) ────────────────────
         const vimeoThumbCache = {};
         async function loadVimeoThumbs() {
-            const items = document.querySelectorAll('#sidebar-list [data-vid]');
-            for (const item of items) {
-                const id = item.dataset.vid;
-                if (!vimeoMap[id]) continue;
+            const items = [...document.querySelectorAll('#sidebar-list [data-vid]')]
+                .filter(el => vimeoMap[el.dataset.vid]);
+
+            // Fire all fetches simultaneously
+            await Promise.allSettled(items.map(async item => {
+                const id      = item.dataset.vid;
                 const videoId = vimeoMap[id][activeLang] || vimeoMap[id]['EN'];
-                const img = item.querySelector('.vimeo-thumb-img');
-                if (!img) continue;
-                // Serve from cache immediately
-                if (vimeoThumbCache[videoId]) { img.src = vimeoThumbCache[videoId]; continue; }
-                // Fetch via Vimeo oEmbed (CORS-enabled, no auth required)
+                const img     = item.querySelector('.vimeo-thumb-img');
+                if (!img) return;
+
+                // Serve from cache immediately (no network needed)
+                if (vimeoThumbCache[videoId]) {
+                    img.src = vimeoThumbCache[videoId];
+                    img.style.objectFit = 'cover';
+                    return;
+                }
+
                 try {
-                    const resp = await fetch(`https://vimeo.com/api/oembed.json?url=https://vimeo.com/${videoId}&width=400`);
+                    const resp = await fetch(
+                        `https://vimeo.com/api/oembed.json?url=https://vimeo.com/${videoId}&width=400`
+                    );
                     if (resp.ok) {
                         const data = await resp.json();
                         if (data.thumbnail_url) {
                             vimeoThumbCache[videoId] = data.thumbnail_url;
-                            img.src = data.thumbnail_url;
-                            img.style.objectFit = 'cover';
+                            // Only update if item is still in the DOM (user didn't switch category)
+                            if (item.isConnected) {
+                                img.src = data.thumbnail_url;
+                                img.style.objectFit = 'cover';
+                            }
                         }
                     }
                 } catch(e) { /* keep gradient placeholder */ }
-            }
+            }));
         }
 
         // ── Trigger staggered page-content reveal ────────────────────────
@@ -1045,15 +1057,13 @@
             }
             _introPlaying = true;
             sessionStorage.setItem('ph_intro', '1');
-            // Logo approach: 4.4 s → settle for ~0.6 s → start dismiss
+            // Logo approach: 3.0 s → settle for ~0.6 s → start dismiss at 3.6 s
             setTimeout(() => {
-                overlay.style.pointerEvents = 'none'; // stop overlay intercepting events during fade
+                overlay.style.pointerEvents = 'none';
                 overlay.classList.add('dismiss');
-                // Start page content fade while overlay is still partly visible (nice crossfade)
-                setTimeout(triggerFadeUps, 500);
-                // Remove overlay from DOM after dismiss animation completes
-                setTimeout(() => { overlay.remove(); _introPlaying = false; }, 900);
-            }, 5000);
+                setTimeout(triggerFadeUps, 400);
+                setTimeout(() => { overlay.remove(); _introPlaying = false; }, 800);
+            }, 3600);
         })();
 
         // ── Nav scroll hint + peek animation (mobile, once per session) ──
@@ -1069,7 +1079,7 @@
             // One-time peek animation so users discover the scroll
             if (window.innerWidth < 768 && !sessionStorage.getItem('ph_nav_peeked')) {
                 sessionStorage.setItem('ph_nav_peeked', '1');
-                const delay = _introPlaying ? 6200 : 700;
+                const delay = _introPlaying ? 4800 : 700;
                 setTimeout(() => {
                     nav.scrollTo({ left: 90, behavior: 'smooth' });
                     setTimeout(() => nav.scrollTo({ left: 0, behavior: 'smooth' }), 950);
