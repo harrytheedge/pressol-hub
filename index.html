@@ -133,11 +133,52 @@
         #vol-slider { -webkit-appearance:none; width:56px; height:3px; background:rgba(255,255,255,0.30); border-radius:2px; outline:none; cursor:pointer; vertical-align:middle; }
         #vol-slider::-webkit-slider-thumb { -webkit-appearance:none; width:10px; height:10px; border-radius:50%; background:white; cursor:pointer; }
 
-        /* Vimeo placeholder card in sidebar */
-        .vimeo-thumb { background: linear-gradient(135deg, #0069B3 0%, #004d82 100%); display:flex; align-items:center; justify-content:center; width:100%; height:100%; }
+        /* Vimeo thumbnail placeholder while real thumb loads */
+        .vimeo-thumb-img { background: linear-gradient(135deg, #0069B3 0%, #004982 100%); object-fit: cover; }
+
+        /* ── Cinematic intro overlay ─────────────────────────────── */
+        #intro-overlay {
+            position: fixed; inset: 0; z-index: 1000;
+            background: radial-gradient(ellipse at 50% 46%, #e8f3fc 0%, #ffffff 58%);
+            display: flex; align-items: center; justify-content: center;
+        }
+        @keyframes logoApproach {
+            0%   { transform: scale(0.60) translateY(14px); filter: blur(26px); opacity: 0; }
+            18%  { opacity: 1; }
+            82%  { transform: scale(0.985) translateY(0.5px); filter: blur(0.4px); }
+            100% { transform: scale(1.0)  translateY(0px);   filter: blur(0px);   opacity: 1; }
+        }
+        @keyframes introDismiss {
+            0%   { opacity: 1; }
+            100% { opacity: 0; pointer-events: none; }
+        }
+        #intro-logo { animation: logoApproach 2.6s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+        #intro-overlay.dismiss { animation: introDismiss 1.0s ease forwards; }
+
+        /* ── Nav scroll hint (right-edge fade, mobile only) ────── */
+        .nav-scroll-wrap { position: relative; flex: 1; min-width: 0; }
+        #nav-fade-hint {
+            position: absolute; top: 0; right: 0; bottom: 0; width: 72px;
+            background: linear-gradient(to right, transparent, white 88%);
+            pointer-events: none;
+            transition: opacity 0.4s ease;
+        }
+        @media (min-width: 768px) { #nav-fade-hint { display: none; } }
     </style>
 </head>
 <body class="bg-white font-roboto text-pAnthrazit p-4 md:p-8">
+
+    <!-- ── Cinematic intro overlay ─────────────────────────────────── -->
+    <div id="intro-overlay">
+        <img id="intro-logo" src="pressol_logo.png" alt="PRESSOL"
+             style="height: clamp(72px, 16vw, 148px); width: auto;">
+    </div>
+    <script>
+        // Hide immediately on repeat visits (no flash)
+        if (sessionStorage.getItem('ph_intro')) {
+            document.getElementById('intro-overlay').style.display = 'none';
+        }
+    </script>
 
     <header class="max-w-[1600px] mx-auto mb-10 fade-up" style="animation-delay:0ms">
         <div class="flex items-center justify-between mb-4 md:mb-8">
@@ -145,7 +186,10 @@
             <div id="lang-picker-mobile" class="relative md:hidden"></div>
         </div>
         <div id="nav-wrapper" class="flex flex-col md:flex-row md:justify-between md:items-end border-b-2 border-pGray pb-2 gap-2 md:gap-0">
-            <nav id="nav-groups" class="flex gap-4 md:gap-8 text-sm font-[900] uppercase tracking-tight overflow-x-auto pb-1 md:pb-0"></nav>
+            <div class="nav-scroll-wrap">
+                <nav id="nav-groups" class="flex gap-4 md:gap-8 text-sm font-[900] uppercase tracking-tight overflow-x-auto pb-1 md:pb-0"></nav>
+                <div id="nav-fade-hint"></div>
+            </div>
             <div id="lang-picker-desktop" class="hidden md:block relative"></div>
         </div>
     </header>
@@ -627,7 +671,7 @@
             list.innerHTML = cats[cat].map((id, i) => {
                 const isVimeo = !!vimeoMap[id];
                 const thumbEl = isVimeo
-                    ? `<div class="vimeo-thumb"><svg style="width:30px;height:30px;opacity:0.85;" fill="white" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>`
+                    ? `<img class="vimeo-thumb-img w-full h-full" src="" alt="${t(id)}" loading="lazy">`
                     : `<img src="https://videohub.pressol.iol.eu/thumbs/${id}_${activeLang}.jpg" class="w-full h-full object-cover" loading="lazy">`;
                 const metaEl = isVimeo
                     ? ``
@@ -644,6 +688,8 @@
                 </div>`;
             }).join('');
             switchVideo(cats[cat][0], true);
+            // Load real Vimeo thumbnails async for Vimeo categories
+            if (cats[cat].some(id => vimeoMap[id])) loadVimeoThumbs();
         }
 
         function switchVideo(id, isAuto = false) {
@@ -897,6 +943,68 @@
                 if (p && p.paused) p.play().catch(() => {});
             }
         });
+
+        // ── Vimeo thumbnail loader ────────────────────────────────────────
+        const vimeoThumbCache = {};
+        async function loadVimeoThumbs() {
+            const items = document.querySelectorAll('#sidebar-list [data-vid]');
+            for (const item of items) {
+                const id = item.dataset.vid;
+                if (!vimeoMap[id]) continue;
+                const videoId = vimeoMap[id][activeLang] || vimeoMap[id]['EN'];
+                const img = item.querySelector('.vimeo-thumb-img');
+                if (!img) continue;
+                // Serve from cache immediately
+                if (vimeoThumbCache[videoId]) { img.src = vimeoThumbCache[videoId]; continue; }
+                // Fetch via Vimeo oEmbed (CORS-enabled, no auth required)
+                try {
+                    const resp = await fetch(`https://vimeo.com/api/oembed.json?url=https://vimeo.com/${videoId}&width=400`);
+                    if (resp.ok) {
+                        const data = await resp.json();
+                        if (data.thumbnail_url) {
+                            vimeoThumbCache[videoId] = data.thumbnail_url;
+                            img.src = data.thumbnail_url;
+                            img.style.objectFit = 'cover';
+                        }
+                    }
+                } catch(e) { /* keep gradient placeholder */ }
+            }
+        }
+
+        // ── Cinematic intro (once per session) ───────────────────────────
+        let _introPlaying = false;
+        (function initIntro() {
+            const overlay = document.getElementById('intro-overlay');
+            if (!overlay || overlay.style.display === 'none') return;
+            _introPlaying = true;
+            sessionStorage.setItem('ph_intro', '1');
+            // After logo settles: brief pause then fade out
+            setTimeout(() => {
+                overlay.classList.add('dismiss');
+                setTimeout(() => { overlay.remove(); _introPlaying = false; }, 1050);
+            }, 2600);
+        })();
+
+        // ── Nav scroll hint + peek animation (mobile, once per session) ──
+        (function initNavHint() {
+            const nav  = document.getElementById('nav-groups');
+            const hint = document.getElementById('nav-fade-hint');
+            if (!nav || !hint) return;
+            // Hide hint when user has scrolled to the end
+            nav.addEventListener('scroll', () => {
+                const atEnd = nav.scrollLeft + nav.clientWidth >= nav.scrollWidth - 8;
+                hint.style.opacity = atEnd ? '0' : '1';
+            }, { passive: true });
+            // One-time peek animation so users discover the scroll
+            if (window.innerWidth < 768 && !sessionStorage.getItem('ph_nav_peeked')) {
+                sessionStorage.setItem('ph_nav_peeked', '1');
+                const delay = _introPlaying ? 3600 : 700;
+                setTimeout(() => {
+                    nav.scrollTo({ left: 90, behavior: 'smooth' });
+                    setTimeout(() => nav.scrollTo({ left: 0, behavior: 'smooth' }), 950);
+                }, delay);
+            }
+        })();
 
         renderLangs();
         renderNav();
