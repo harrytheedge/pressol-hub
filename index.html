@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PRESSOL Hub</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;600;900&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: { pBlue: '#0069B3', pAnthrazit: '#1D1D1B', pOrange: '#E97600', pGray: '#DADADA' },
+                    fontFamily: { roboto: ['Roboto', 'sans-serif'] }
+                }
+            }
+        }
+    </script>
+    <style>
+        * { font-style: normal !important; }
+        video { background: white !important; }
+        .video-transition { transition: opacity 0.3s ease-in-out; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-thumb { background: #0069B3; border-radius: 10px; }
+
+        /* Compact control bar – Vimeo/Netflix style */
+        #ctrl-bar {
+            position: absolute; bottom: 0; left: 0; right: 0;
+            background: rgba(0,0,0,0.40);
+            padding: 0;
+            opacity: 0;
+            transition: opacity 0.25s ease;
+            pointer-events: none;
+        }
+        #ctrl-bar.visible { opacity: 1; pointer-events: auto; }
+
+        /* Button row inside bar */
+        #ctrl-buttons { padding: 2px 14px 2px; display: flex; align-items: center; justify-content: space-between; }
+
+        /* Progress bar – flush at bottom, full width, PRESSOL orange */
+        #progress-track { padding: 0; cursor: pointer; display: block; }
+        #progress-track .track-inner { height: 5px; transition: height 0.15s ease; background: rgba(255,255,255,0.25); border-radius: 0; position: relative; overflow: hidden; }
+        #ctrl-bar.visible #progress-track:hover .track-inner { height: 7px; }
+
+        /* Hide cursor when controls hidden (fullscreen) */
+        #player-wrapper.hide-cursor { cursor: none; }
+
+        /* ① Staggered entrance */
+        @keyframes fadeUp {
+            from { opacity: 0; transform: translateY(18px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        .fade-up { opacity: 0; animation: fadeUp 0.55s ease forwards; }
+
+        /* ② Active playlist item */
+        .playlist-active { border-left: 3px solid #E97600 !important; padding-left: 10px; background: rgba(0,105,179,0.04); border-radius: 2px; }
+
+        /* ③ Thumbnail hover zoom */
+        #sidebar-list .group .aspect-video { overflow: hidden; }
+        #sidebar-list .group .aspect-video img { transition: transform 0.35s ease; }
+        #sidebar-list .group:hover .aspect-video img { transform: scale(1.05); }
+
+        /* ④ Product name fade */
+        #display-name, #display-sku { transition: opacity 0.18s ease; }
+
+        /* ⑤ Language switch — slide out right / slide in from left */
+        @keyframes langSlideOut {
+            from { opacity: 1; transform: translateX(0); }
+            to   { opacity: 0; transform: translateX(10px); }
+        }
+        @keyframes langSlideIn {
+            from { opacity: 0; transform: translateX(-16px); }
+            to   { opacity: 1; transform: translateX(0); }
+        }
+        .lang-exit  { animation: langSlideOut 0.30s ease forwards; }
+        .lang-enter { opacity: 0; animation: langSlideIn 0.84s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards; }
+
+        /* ⑥ Shimmer sweep across nav on language change */
+        @keyframes shimmerMove {
+            from { transform: translateX(-100%); }
+            to   { transform: translateX(350%); }
+        }
+        #nav-wrapper { position: relative; overflow: hidden; }
+        #nav-wrapper.shimmer::after {
+            content: '';
+            position: absolute;
+            top: 0; bottom: 0; left: 0;
+            width: 50%;
+            background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.65) 50%, transparent 100%);
+            animation: shimmerMove 1.10s ease forwards;
+            pointer-events: none;
+            z-index: 10;
+        }
+        #nav-groups { scrollbar-width: none; -ms-overflow-style: none; }
+        #nav-groups::-webkit-scrollbar { display: none; }
+
+        /* ⑧ Video description box */
+        #video-desc-inner {
+            position: relative;
+            transition: max-height 0.35s ease;
+        }
+        #video-desc-text {
+            font-size: 0.8125rem;
+            line-height: 1.65;
+            color: rgba(40,40,40,0.65);
+        }
+        #video-desc-more { display: none; }
+        @media (max-width: 767px) {
+            #video-desc-inner.desc-collapsed {
+                max-height: 4.6em;
+                overflow: hidden;
+            }
+            #video-desc-inner.desc-collapsed::after {
+                content: '';
+                position: absolute;
+                bottom: 0; left: 0; right: 0;
+                height: 2.2em;
+                background: linear-gradient(to bottom, transparent, white);
+                pointer-events: none;
+            }
+            #video-desc-inner.desc-expanded { max-height: 30em; overflow: hidden; }
+            #video-desc-more { display: inline-block; }
+            #video-desc-inner.desc-expanded ~ #video-desc-more { display: none; }
+        }
+
+        /* ⑦ Language picker dropdown */
+        @keyframes langMenuOpen {
+            from { opacity: 0; transform: scale(0.96) translateY(-4px); }
+            to   { opacity: 1; transform: scale(1)    translateY(0); }
+        }
+
+        /* Volume slider */
+        #vol-slider { -webkit-appearance:none; width:56px; height:3px; background:rgba(255,255,255,0.30); border-radius:2px; outline:none; cursor:pointer; vertical-align:middle; }
+        #vol-slider::-webkit-slider-thumb { -webkit-appearance:none; width:10px; height:10px; border-radius:50%; background:white; cursor:pointer; }
+
+        /* Vimeo placeholder card in sidebar */
+        .vimeo-thumb { background: linear-gradient(135deg, #0069B3 0%, #004d82 100%); display:flex; align-items:center; justify-content:center; width:100%; height:100%; }
+    </style>
+</head>
+<body class="bg-white font-roboto text-pAnthrazit p-4 md:p-8">
+
+    <header class="max-w-[1600px] mx-auto mb-10 fade-up" style="animation-delay:0ms">
+        <div class="flex items-center justify-between mb-4 md:mb-8">
+            <img src="pressol_logo.png" alt="PRESSOL" class="h-11 flex-shrink-0">
+            <div id="lang-picker-mobile" class="relative md:hidden"></div>
+        </div>
+        <div id="nav-wrapper" class="flex flex-col md:flex-row md:justify-between md:items-end border-b-2 border-pGray pb-2 gap-2 md:gap-0">
+            <nav id="nav-groups" class="flex gap-4 md:gap-8 text-sm font-[900] uppercase tracking-tight overflow-x-auto pb-1 md:pb-0"></nav>
+            <div id="lang-picker-desktop" class="hidden md:block relative"></div>
+        </div>
+    </header>
+
+    <main class="max-w-[1600px] mx-auto">
+        <div class="flex flex-col lg:flex-row gap-8 lg:gap-12">
+            <div class="w-full lg:flex-[3] fade-up" style="animation-delay:80ms">
+                <div id="player-wrapper" class="relative bg-white aspect-video border border-pGray shadow-sm overflow-hidden select-none">
+                    <!-- MP4 player (existing 5 categories) -->
+                    <video id="main-player" class="absolute inset-0 w-full h-full video-transition opacity-100"
+                           autoplay muted playsinline>
+                    </video>
+                    <!-- Vimeo iframe player (Praxis + Über uns) -->
+                    <iframe id="vimeo-player"
+                        class="absolute inset-0 w-full h-full"
+                        frameborder="0"
+                        allow="autoplay; fullscreen; picture-in-picture"
+                        allowfullscreen
+                        style="display:none;border:none;">
+                    </iframe>
+
+                    <!-- White fade overlay for smooth transitions -->
+                    <div id="fade-overlay" style="position:absolute;inset:0;background:white;opacity:0;transition:opacity 0.28s ease;pointer-events:none;z-index:5;"></div>
+
+                    <!-- Compact control bar (MP4 only) -->
+                    <div id="ctrl-bar">
+                        <div id="ctrl-buttons">
+                            <div style="display:flex; align-items:center; gap:14px;">
+                                <button onclick="togglePlay(); event.stopPropagation()" style="color:white; background:none; border:none; cursor:pointer; padding:0; display:flex; align-items:center;">
+                                    <svg id="icon-play" style="width:28px;height:28px;" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                                    <svg id="icon-pause" style="width:28px;height:28px;display:none;" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                                </button>
+                                <span id="time-display" style="color:rgba(255,255,255,0.85); font-size:11px; font-family:monospace; user-select:none; letter-spacing:0.02em;">0:00 / 0:00</span>
+                                <div style="display:flex; align-items:center; gap:5px;" onclick="event.stopPropagation()">
+                                    <button onclick="toggleMute(); event.stopPropagation()" style="color:white; background:none; border:none; cursor:pointer; padding:0; display:flex; align-items:center;">
+                                        <svg id="icon-vol-on" style="width:22px;height:22px;display:none;" fill="currentColor" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+                                        <svg id="icon-vol-off" style="width:22px;height:22px;" fill="currentColor" viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>
+                                    </button>
+                                    <input type="range" id="vol-slider" min="0" max="1" step="0.05" value="1"
+                                           oninput="setVolume(this.value); event.stopPropagation()"
+                                           onclick="event.stopPropagation()">
+                                </div>
+                            </div>
+                            <button onclick="toggleFullscreen(); event.stopPropagation()" style="color:white; background:none; border:none; cursor:pointer; padding:0; display:flex; align-items:center;">
+                                <svg id="icon-fs-expand" style="width:28px;height:28px;" fill="currentColor" viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+                                <svg id="icon-fs-shrink" style="width:28px;height:28px;display:none;" fill="currentColor" viewBox="0 0 24 24"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>
+                            </button>
+                        </div>
+                        <div id="progress-track" onclick="seekVideo(event); event.stopPropagation()">
+                            <div class="track-inner">
+                                <div id="progress-fill" style="position:absolute;inset-y:0;left:0;top:0;bottom:0;background:#E97600;width:0%;"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-6 flex items-baseline gap-3 border-l-4 border-pBlue pl-4">
+                    <span id="display-name" class="text-lg md:text-xl font-semibold"></span>
+                    <span id="display-separator" class="text-pGray font-light">|</span>
+                    <span id="display-sku" class="text-lg md:text-xl font-normal text-pAnthrazit/60"></span>
+                </div>
+                <div id="video-desc-box" class="mt-3 pl-4">
+                    <div id="video-desc-inner" class="desc-collapsed">
+                        <p id="video-desc-text"></p>
+                    </div>
+                    <button id="video-desc-more" onclick="expandDesc()"
+                        class="mt-1 text-[11px] font-bold text-pBlue uppercase tracking-wide">
+                        Mehr lesen ↓
+                    </button>
+                </div>
+            </div>
+
+            <aside class="w-full lg:flex-1 lg:min-w-[350px] fade-up" style="animation-delay:180ms">
+                <h3 id="sidebar-label" class="text-[10px] font-[900] uppercase mb-6 text-pAnthrazit/30 tracking-widest border-l-4 border-pOrange pl-3"></h3>
+                <div id="sidebar-list" class="flex flex-col gap-5 overflow-y-auto lg:max-h-[650px] pr-2"></div>
+            </aside>
+        </div>
+    </main>
+
+    <script>
+        // ── Global mode flag ──────────────────────────────────────────────
+        let activeVideoMode = 'mp4'; // 'mp4' | 'vimeo'
+
+        // ── Vimeo video ID map ────────────────────────────────────────────
+        // 🔁 = fallback to EN version
+        const vimeoMap = {
+            'messbecher':               { DE: 754209538,  EN: 756821056,  CZ: 756821056,  NL: 756821056,  FR: 756821056,  ES: 756822993,  PT: 756828610  },
+            'messbecher_gastro':        { DE: 762286792,  EN: 762288317,  CZ: 762288317,  NL: 762288317,  FR: 762288317,  ES: 762301197,  PT: 762296087  },
+            'kanisterentlueftung':      { DE: 762277421,  EN: 762277846,  CZ: 762277846,  NL: 762277846,  FR: 762277846,  ES: 762278267,  PT: 762280271  },
+            'adblue_fasspumpe':         { DE: 370857309,  EN: 370857161,  CZ: 370857161,  NL: 370857161,  FR: 370857002,  ES: 370856509,  PT: 370856343  },
+            'tankfixx':                 { DE: 607687079,  EN: 610257749,  CZ: 611134202,  NL: 611155116,  FR: 611028423,  ES: 610252202,  PT: 611036914  },
+            'manufacturing_specialists':{ DE: 743427864,  EN: 743427864,  CZ: 1057792227, NL: 743427864,  FR: 743427864,  ES: 743427864,  PT: 743427864  },
+            'from_idea_to_reality':     { DE: 743358792,  EN: 743363075,  CZ: 743363075,  NL: 743363075,  FR: 744485126,  ES: 743371414,  PT: 744493534  }
+        };
+
+        // ── i18n ──────────────────────────────────────────────────────────
+        const i18n = {
+            'DE': { 'Playlist': 'PLAYLIST', 'SKU': 'Art.-Nr.', 'Read_more': 'Mehr lesen',
+                    'Schmiergeräte': 'Schmiergeräte', 'Tankanlagen': 'Tankanlagen', 'Werkstatt': 'Werkstatt', 'Pneumatik': 'Pneumatik', 'Zubehör': 'Zubehör',
+                    'Praxis': 'Praxis', 'Ueberuns': 'Über uns',
+                    '12_633': 'Standard-Fettpresse', '12_062': 'Hochdruck-Mundstück', '18_072': 'Druckluft-Fettpresse', '12_630': 'Einhand-Fettpresse',
+                    '45_319': 'mobiBLUE 450 l', '23_163': 'Zapfventil PP', '23_176': 'Automatik-Zapfventil', '13_055': 'Rotationspumpe',
+                    '19_698': 'Durchflusszähler digital', '07_623': 'Messbecher 3 l', '13_012': 'Fasspumpe SRL', '18_082': 'Z-Drehgelenk',
+                    '19_768': 'Sprüheinheit fahrbar', '18_616_051': 'Fettpumpe 15:1', '18_516_051': 'Fett- und Silikonpumpe',
+                    '18_870': 'Fußventil-Umbausatz', '19_519': 'Fassverschraubung M 62', '19_529': 'Fassverschraubung M 60', '23_296': 'Zähleranschluss', '23_295': 'Zählerkit',
+                    'messbecher': 'Messbecher 2026', 'messbecher_gastro': 'Messbecher Gastro', 'kanisterentlueftung': 'Kanisterentlüftung',
+                    'adblue_fasspumpe': 'AdBlue® Fasspumpe', 'tankfixx': 'TankFIXX Installation',
+                    'manufacturing_specialists': 'Manufacturing Specialists', 'from_idea_to_reality': 'Von der Idee zur Realität' },
+
+            'EN': { 'Playlist': 'PLAYLIST', 'SKU': 'Art. no.', 'Read_more': 'Read more',
+                    'Schmiergeräte': 'Lubrication', 'Tankanlagen': 'Tank Systems', 'Werkstatt': 'Workshop', 'Pneumatik': 'Pneumatics', 'Zubehör': 'Accessories',
+                    'Praxis': 'Use Cases', 'Ueberuns': 'About Us',
+                    '12_633': 'Standard grease gun', '12_062': 'Button head coupler', '18_072': 'Pneumatic grease gun', '12_630': 'One hand grease gun',
+                    '45_319': 'mobiBLUE 450 l', '23_163': 'Manual nozzle PP', '23_176': 'Automatic nozzle', '13_055': 'Rotary pump',
+                    '19_698': 'Digital flow meter', '07_623': 'Measuring jug 3 l', '13_012': 'Barrel pump SRL', '18_082': 'Z-swivel joint',
+                    '19_768': 'Spray unit mobile', '18_616_051': 'Grease pump 15:1', '18_516_051': 'Grease + silicone pump',
+                    '18_870': 'Foot valve kit', '19_519': 'Barrel screw coupling M 62', '19_529': 'Barrel screw coupling M 60', '23_296': 'Meter connection', '23_295': 'Meter kit',
+                    'messbecher': 'Measuring Jug 2026', 'messbecher_gastro': 'Measuring Jug – Gastro', 'kanisterentlueftung': 'Container Ventilation',
+                    'adblue_fasspumpe': 'AdBlue® Barrel Pump', 'tankfixx': 'TankFIXX Installation',
+                    'manufacturing_specialists': 'Manufacturing Specialists', 'from_idea_to_reality': 'From Idea to Reality' },
+
+            'CZ': { 'Playlist': 'SEZNAM', 'SKU': 'Výr. č.', 'Read_more': 'Číst dále',
+                    'Schmiergeräte': 'Mazání', 'Tankanlagen': 'Čerpání', 'Werkstatt': 'Dílna', 'Pneumatik': 'Pneumatika', 'Zubehör': 'Příslušenství',
+                    'Praxis': 'Praxe', 'Ueberuns': 'O nás',
+                    '12_633': 'Standardní mazací lis', '12_062': 'Sklíčidlová spojka', '18_072': 'Pneumatický lis', '12_630': 'Jednoruční lis',
+                    '45_319': 'mobiBLUE 450 l', '23_163': 'Výdejní pistole PP', '23_176': 'Automatická pistole', '13_055': 'Rotační čerpadlo',
+                    '19_698': 'Digitální průtokoměr', '07_623': 'Odměrka 3 l', '13_012': 'Sudové čerpadlo', '18_082': 'Z-otočný kloub',
+                    '19_768': 'Mobilní postřikovač', '18_616_051': 'Čerpadlo 15:1', '18_516_051': 'Čerpadlo silikon',
+                    '18_870': 'Sada ventilu', '19_519': 'Šroubení sudu M 62', '19_529': 'Šroubení sudu M 60', '23_296': 'Přípojka', '23_295': 'Sada',
+                    'messbecher': 'Odměrka 2026', 'messbecher_gastro': 'Odměrka gastro', 'kanisterentlueftung': 'Odvzdušnění kanistrů',
+                    'adblue_fasspumpe': 'AdBlue® sudové čerpadlo', 'tankfixx': 'TankFIXX instalace',
+                    'manufacturing_specialists': 'Výrobní specialisté', 'from_idea_to_reality': 'Od myšlenky k realitě' },
+
+            'NL': { 'Playlist': 'AFSPEELLIJST', 'SKU': 'Art. nr.', 'Read_more': 'Meer lezen',
+                    'Schmiergeräte': 'Smeertechniek', 'Tankanlagen': 'Tanksystemen', 'Werkstatt': 'Werkplaats', 'Pneumatik': 'Pneumatiek', 'Zubehör': 'Toebehoren',
+                    'Praxis': 'Praktijk', 'Ueberuns': 'Over ons',
+                    '12_633': 'Standaard vetspuit', '12_062': 'Hogedrukkop', '18_072': 'Luchtdruk-vetspuit', '12_630': 'Eénhandsvetspuit',
+                    '45_319': 'mobiBLUE 450 l', '23_163': 'Tappistool PP', '23_176': 'Automatisch pistool', '13_055': 'Rotatiepomp',
+                    '19_698': 'Digitale debietmeter', '07_623': 'Maatbeker 3 l', '13_012': 'Vatpomp SRL', '18_082': 'Z-draaischarnier',
+                    '19_768': 'Spuitunit mobiel', '18_616_051': 'Vetpomp 15:1', '18_516_051': 'Siliconenpomp',
+                    '18_870': 'Voetventielset', '19_519': 'Vatkoppeling M 62', '19_529': 'Vatkoppeling M 60', '23_296': 'Meteraansluiting', '23_295': 'Meterkit',
+                    'messbecher': 'Maatbeker 2026', 'messbecher_gastro': 'Maatbeker gastro', 'kanisterentlueftung': 'Kanisterventilatie',
+                    'adblue_fasspumpe': 'AdBlue® vatpomp', 'tankfixx': 'TankFIXX installatie',
+                    'manufacturing_specialists': 'Productiespecialisten', 'from_idea_to_reality': 'Van idee naar realiteit' },
+
+            'FR': { 'Playlist': 'LISTE', 'SKU': 'Réf.', 'Read_more': 'Lire la suite',
+                    'Schmiergeräte': 'Lubrification', 'Tankanlagen': 'Stations-service', 'Werkstatt': 'Atelier', 'Pneumatik': 'Pneumatique', 'Zubehör': 'Accessoires',
+                    'Praxis': 'En pratique', 'Ueberuns': 'À propos',
+                    '12_633': 'Presse à graisse', '12_062': 'Agrafe haute pression', '18_072': 'Presse pneumatique', '12_630': 'Presse à main',
+                    '45_319': 'mobiBLUE 450 l', '23_163': 'Pistolet PP', '23_176': 'Pistolet automatique', '13_055': 'Pompe rotative',
+                    '19_698': 'Compteur digital', '07_623': 'Mesure 3 l', '13_012': 'Pompe fût', '18_082': 'Raccord Z',
+                    '19_768': 'Pulvérisateur mobile', '18_616_051': 'Pompe 15:1', '18_516_051': 'Pompe silicone',
+                    '18_870': 'Kit soupape', '19_519': 'Bonde fût M 62', '19_529': 'Bonde fût M 60', '23_296': 'Raccord compteur', '23_295': 'Kit compteur',
+                    'messbecher': 'Verre gradué 2026', 'messbecher_gastro': 'Verre gradué – Gastro', 'kanisterentlueftung': 'Ventilation jerrican',
+                    'adblue_fasspumpe': 'Pompe fût AdBlue®', 'tankfixx': 'TankFIXX installation',
+                    'manufacturing_specialists': 'Spécialistes fabrication', 'from_idea_to_reality': "De l'idée à la réalité" },
+
+            'ES': { 'Playlist': 'LISTA', 'SKU': 'Ref.', 'Read_more': 'Leer más',
+                    'Schmiergeräte': 'Lubricación', 'Tankanlagen': 'Tanques', 'Werkstatt': 'Taller', 'Pneumatik': 'Neumática', 'Zubehör': 'Accesorios',
+                    'Praxis': 'En práctica', 'Ueberuns': 'Sobre nosotros',
+                    '12_633': 'Bomba de engrase', '12_062': 'Acoplamiento empuje', '18_072': 'Bomba neumática', '12_630': 'Bomba de mano',
+                    '45_319': 'mobiBLUE 450 l', '23_163': 'Pistola manual PP', '23_176': 'Pistola automática', '13_055': 'Bomba rotativa',
+                    '19_698': 'Medidor digital', '07_623': 'Jarra graduada 3 l', '13_012': 'Bomba bidón SRL', '18_082': 'Junta en Z',
+                    '19_768': 'Unidad de pulverización', '18_616_051': 'Bomba 15:1', '18_516_051': 'Bomba silicona',
+                    '18_870': 'Kit de válvula', '19_519': 'Tapón bidón M 62', '19_529': 'Tapón bidón M 60', '23_296': 'Conexión medidor', '23_295': 'Kit medidor',
+                    'messbecher': 'Jarra graduada 2026', 'messbecher_gastro': 'Jarra graduada – Gastro', 'kanisterentlueftung': 'Ventilación bidón',
+                    'adblue_fasspumpe': 'Bomba bidón AdBlue®', 'tankfixx': 'TankFIXX instalación',
+                    'manufacturing_specialists': 'Especialistas fabricación', 'from_idea_to_reality': 'De la idea a la realidad' },
+
+            'PT': { 'Playlist': 'LISTA', 'SKU': 'Ref.', 'Read_more': 'Ler mais',
+                    'Schmiergeräte': 'Lubrificação', 'Tankanlagen': 'Tanques', 'Werkstatt': 'Oficina', 'Pneumatik': 'Pneumática', 'Zubehör': 'Acessórios',
+                    'Praxis': 'Na prática', 'Ueberuns': 'Sobre nós',
+                    '12_633': 'Pistola lubrificação', '12_062': 'Acoplador pressão', '18_072': 'Pistola pneumática', '12_630': 'Pistola de mão',
+                    '45_319': 'mobiBLUE 450 l', '23_163': 'Pistola manual PP', '23_176': 'Pistola automática', '13_055': 'Bomba rotativa',
+                    '19_698': 'Medidor digital', '07_623': 'Medida graduada 3 l', '13_012': 'Bomba barril SRL', '18_082': 'Junta rotativa em Z',
+                    '19_768': 'Unidade pulverização', '18_616_051': 'Bomba 15:1', '18_516_051': 'Bomba silicone',
+                    '18_870': 'Kit válvula', '19_519': 'Batoque barril M 62', '19_529': 'Batoque barril M 60', '23_296': 'Ligação medidor', '23_295': 'Kit medidor',
+                    'messbecher': 'Copo medidor 2026', 'messbecher_gastro': 'Copo medidor – Gastro', 'kanisterentlueftung': 'Ventilação recipiente',
+                    'adblue_fasspumpe': 'Bomba barril AdBlue®', 'tankfixx': 'TankFIXX instalação',
+                    'manufacturing_specialists': 'Especialistas fabrico', 'from_idea_to_reality': 'Da ideia à realidade' }
+        };
+
+        // ── Video descriptions (20 products + 7 Vimeo videos × 7 languages) ────
+        const videoDesc = {
+            'DE': {
+                '12_633': 'Die PRESSOL PRELIxx Standard-Fettpresse liefert auch nach 40.000 Arbeitsspielen konstante Schmierleistung. Der variable Hub ermöglicht optimale Anpassung an Gegendruck und Fördermenge. Kompatibel mit Standard-Kartuschen und allen gängigen Schmiernippeln.',
+                '12_062': 'Das PRESSOL Hochdruck-Mundstück überwindet zuverlässig auch verharzte und schwer zugängliche Schmierstellen. Die robuste Stahlkonstruktion hält Drücken bis 500 bar stand. Passt auf alle gängigen PRESSOL Fettpressenkupplungen.',
+                '18_072': 'Die pneumatische PRESSOL Fettpresse ermöglicht kontinuierliches Schmieren ohne körperliche Ermüdung. Einfach an die Druckluftversorgung anschließen – ideal für Werkstätten mit hohem täglichem Schmierbedarf. Verarbeitet Fette bis NLGI 3.',
+                '12_630': 'Die PRESSOL Einhand-Fettpresse wurde speziell für das Schmieren mit einer Hand entwickelt. Der umschaltbare Hub ermöglicht wahlweise hohes Fördervolumen oder maximalen Druck. Perfekt für schwer zugängliche Schmierstellen.',
+                '45_319': 'Der PRESSOL mobiBLUE 450 l ist der mobile AdBlue®-Tank für professionellen Fuhrpark- und Werkstatteinsatz. Mit integrierter Pumpe, Zähler und Zapfventil – komplett einsatzbereit auf Rollen. Sicher, zuverlässig und nach WHG geprüft.',
+                '23_163': 'Das PRESSOL Zapfventil aus PP eignet sich für die manuelle Abgabe von Diesel, Heizöl und AdBlue®. Leicht und korrosionsbeständig – ideal für häufigen Einsatz und einfache Reinigung. Zugelassen für alle gängigen Kraftstoffe.',
+                '23_176': 'Das PRESSOL Automatik-Zapfventil unterbricht den Kraftstofffluss selbstständig bei Tankfüllung. Sicher, spritzfrei und komfortabel – ideal für Fuhrparks und Tankstellen. Reduziert Überfüllrisiko und Kraftstoffverluste zuverlässig.',
+                '13_055': 'Die PRESSOL Rotationspumpe fördert Diesel, Heizöl und leichte Öle direkt aus Fässern und IBC-Tanks. Einfache Handkurbel-Bedienung ohne Stromanschluss – überall einsetzbar. Stabil, wartungsarm und beständig gegen Mineralöle.',
+                '19_698': 'Der digitale PRESSOL Durchflusszähler erfasst Einzel- und Gesamtmengen präzise und übersichtlich. Das beleuchtete Display ist auch bei schlechten Lichtverhältnissen gut ablesbar. Ideal für das professionelle Kraftstoff- und Flüssigkeitsmanagement.',
+                '07_623': 'Der PRESSOL Messbecher mit 3 l Fassungsvermögen ist aus lebensmittelechtem, bruchsicherem Kunststoff gefertigt. Die klar lesbare Graduierung ermöglicht präzises Abmessen – in Werkstatt und Gastronomie gleichermaßen beliebt. Spülmaschinenfest und temperaturbeständig.',
+                '13_012': 'Die PRESSOL Fasspumpe SRL fördert Öle und Kraftstoffe sicher und schnell aus 60 l und 200 l Fässern. Das verlängerbare Saugrohr passt sich an verschiedene Fassgrößen an. Robust, selbstansaugend und in verschiedenen Materialausführungen erhältlich.',
+                '18_082': 'Das PRESSOL Z-Drehgelenk ermöglicht torsionsfreie Schlauchführung in alle Richtungen. Es verhindert Schlauchknicke und verlängert damit die Schlauchlebensdauer erheblich. Kompatibel mit Standard-Hochdruckschläuchen.',
+                '19_768': 'Die fahrbare PRESSOL Sprüheinheit bringt Druckluft und Sprühmedium flexibel an jeden Arbeitsplatz. Pneumatisch angetrieben, mit großem Vorratstank – ideal für Konservierungs- und Reinigungsarbeiten. Mobil, leistungsstark und komfortabel.',
+                '18_616_051': 'Die pneumatische PRESSOL Fettpumpe 15:1 fördert Fett direkt aus dem 50 kg oder 180 kg Originalgebinde. Das hohe Übersetzungsverhältnis ermöglicht auch die Förderung schwer fließender Hochleistungsfette. Konzipiert für den Dauerbetrieb in Industrie und Werkstatt.',
+                '18_516_051': 'Die PRESSOL Fett- und Silikonpumpe verarbeitet Fette und Silikone direkt aus dem Originalgebinde. Pneumatisch angetrieben für kontinuierlichen Betrieb ohne Ermüdung – ideal für Karosserie- und Fahrzeugpflege. Einfacher Medienwechsel durch modularen Aufbau.',
+                '18_870': 'Der PRESSOL Fußventil-Umbausatz ermöglicht die einfache Nachrüstung von Pumpen auf Ansaugbetrieb. Damit wird auch der letzte Rest aus dem Gebinde gefördert – ressourcenschonend und wirtschaftlich. Kompatibel mit gängigen PRESSOL Pumpenmodellen.',
+                '19_519': 'Die PRESSOL Fassverschraubung M 62 stellt den sicheren Anschluss für Pumpen an Standard-Fässer mit M 62-Gewinde her. Robuste Stahlausführung für dauerhafte Dichtheit und schnellen Pumpenwechsel. Das Standardgewinde für europäische 200 l-Fässer.',
+                '19_529': 'Die PRESSOL Fassverschraubung M 60 verbindet Pumpen sicher mit Fässern mit M 60-Innengewinde. Ideal als Ergänzung oder Ersatzteil für bestehende Systeme. Robust, dicht und einfach zu montieren.',
+                '23_296': 'Der PRESSOL Zähleranschluss integriert Durchflussmesser sicher und dicht in jedes Abgabesystem. Standardisierte Anschlussmaße für universelle Kompatibilität. Robust und für dauerhaften Einsatz ausgelegt.',
+                '23_295': 'Das PRESSOL Zählerkit enthält alle Komponenten für die einfache Nachrüstung eines Durchflusszählers. Im Lieferumfang sind alle Anschlüsse, Dichtungen und Halterungen enthalten. Schnell montiert, präzise und zuverlässig.',
+                'messbecher': 'Der neue PRESSOL Messbecher 2026 vereint lebensmittelechtes Material mit optimierter Graduierung für höchste Ablesepräzision. Ideal für Werkstatt und Gastronomie – robust, spülmaschinenfest und angenehm zu handhaben. Das überarbeitete Design 2026 setzt neue Maßstäbe für Präzisionsbecher.',
+                'messbecher_gastro': 'Die PRESSOL Messbecher-Gastroanwendung zeigt, wie vielseitig Präzisionsmessbecher im professionellen Alltag eingesetzt werden können. Ob Portionierung, Mischverhältnisse oder schnelles Abmessen unter Zeitdruck – das Video demonstriert praxisnahe Einsatzmöglichkeiten direkt in der Gastronomie.',
+                'kanisterentlueftung': 'Die sichere Kanisterentlüftung ist ein wichtiger Schutz vor gefährlichem Überdruck in Kraftstoffkanistern. Dieses Video erklärt, wie der PRESSOL Entlüftungskanister funktioniert und welche Sicherheitsvorteile er bietet. Pflicht für jeden, der regelmäßig mit Kraftstoffkanistern arbeitet.',
+                'adblue_fasspumpe': 'Die FMT Fasspumpe 13040 überzeugt mit einfachster Bedienung beim Befüllen aus AdBlue®-Fässern. Das Video zeigt Montage und Betrieb Schritt für Schritt – schnell, sicher und zuverlässig für den professionellen Fuhrparkeinsatz. Eine kompakte Lösung für die tägliche AdBlue®-Versorgung.',
+                'tankfixx': 'Das FMT TankFIXX-System schützt Kraftstofftanks dauerhaft vor Schmutz, Kondensation und Algen. Dieses Installationsvideo führt Schritt für Schritt durch die einfache Montage – perfekt für Fahrzeuge, Baumaschinen und stationäre Tanks. Einmal installiert, schützt das System langfristig zuverlässig.',
+                'manufacturing_specialists': 'Dieser Imagefilm stellt PRESSOL als führenden Hersteller von Schmiertechnik- und Betankungslösungen vor. Von der Entwicklung bis zur Fertigung entstehen alle Prozesse im eigenen Haus – mit höchster Qualitätskontrolle und Präzision. PRESSOL steht seit Jahrzehnten für Verlässlichkeit und Innovation.',
+                'from_idea_to_reality': 'Von der ersten Idee bis zum fertigen Produkt begleitet dieser Film den gesamten Entwicklungsprozess bei PRESSOL. Ingenieure, Designer und Fertigungsexperten arbeiten eng zusammen, um robuste Lösungen für anspruchsvolle Anforderungen zu schaffen. Ein Einblick in die Innovationskultur eines Qualitätsherstellers.'
+            },
+            'EN': {
+                '12_633': 'The PRESSOL PRELIxx standard grease gun delivers consistent lubrication performance even after 40,000 strokes. The variable stroke allows optimal adaptation to back pressure and flow rate. Compatible with standard cartridges and all common grease nipples.',
+                '12_062': 'The PRESSOL button head coupler reliably reaches even corroded or hard-to-access lubrication points. The robust steel construction withstands pressures up to 500 bar. Compatible with all PRESSOL grease gun couplings.',
+                '18_072': 'The PRESSOL pneumatic grease gun enables continuous lubrication without physical fatigue. Simply connect to your compressed air supply – ideal for workshops with high daily lubrication needs. Processes greases up to NLGI 3.',
+                '12_630': 'The PRESSOL one-hand grease gun was specifically designed for single-handed lubrication. The switchable stroke allows either high flow volume or maximum pressure. Perfect for hard-to-access lubrication points.',
+                '45_319': 'The PRESSOL mobiBLUE 450 l is the mobile AdBlue® tank for professional fleet and workshop use. Complete with integrated pump, meter and nozzle – ready to use on castors. Safe, reliable and WHG certified.',
+                '23_163': 'The PRESSOL manual nozzle in PP is suitable for dispensing diesel, heating oil and AdBlue®. Light and corrosion-resistant – ideal for frequent use and easy cleaning. Approved for all common fuels.',
+                '23_176': 'The PRESSOL automatic nozzle stops the fuel flow automatically when the tank is full. Safe, splash-free and convenient – ideal for fleet operators and service stations. Reliably reduces overfill risk and fuel loss.',
+                '13_055': 'The PRESSOL rotary pump transfers diesel, heating oil and light oils directly from drums and IBC tanks. Simple hand-crank operation without electrical connection – usable anywhere. Sturdy, low-maintenance and resistant to mineral oils.',
+                '19_698': 'The PRESSOL digital flow meter records individual and total quantities accurately and clearly. The illuminated display is easy to read even in poor lighting conditions. Ideal for professional fuel and liquid management.',
+                '07_623': 'The PRESSOL measuring jug with 3 l capacity is made from food-safe, shatterproof plastic. The clearly readable graduation allows precise measurement – equally popular in workshops and catering. Dishwasher-safe and temperature-resistant.',
+                '13_012': 'The PRESSOL barrel pump SRL safely and quickly transfers oils and fuels from 60 l and 200 l drums. The extendable suction pipe adapts to different drum sizes. Robust, self-priming and available in various material versions.',
+                '18_082': 'The PRESSOL Z-swivel joint enables torsion-free hose routing in all directions. It prevents hose kinking and significantly extends hose service life. Compatible with standard high-pressure hoses.',
+                '19_768': 'The mobile PRESSOL spray unit brings compressed air and spray medium flexibly to any work area. Pneumatically driven with a large supply tank – ideal for preservation and cleaning work. Mobile, powerful and convenient.',
+                '18_616_051': 'The PRESSOL pneumatic grease pump 15:1 feeds grease directly from 50 kg or 180 kg original containers. The high ratio also enables the transfer of heavy-duty greases with high viscosity. Designed for continuous operation in industry and workshops.',
+                '18_516_051': 'The PRESSOL grease and silicone pump processes greases and silicones directly from the original container. Pneumatically driven for continuous operation without fatigue – ideal for bodywork and vehicle care. Easy media change thanks to modular design.',
+                '18_870': 'The PRESSOL foot valve conversion kit allows easy retrofitting of pumps for suction operation. This ensures every last drop is extracted from the container – economical and resource-efficient. Compatible with common PRESSOL pump models.',
+                '19_519': 'The PRESSOL barrel screw coupling M 62 provides a secure connection for pumps to standard drums with M 62 thread. Robust steel construction for lasting seal integrity and quick pump changes. The standard thread for European 200 l drums.',
+                '19_529': 'The PRESSOL barrel screw coupling M 60 securely connects pumps to drums with M 60 internal thread. Ideal as a supplement or replacement part for existing systems. Robust, leak-tight and easy to install.',
+                '23_296': 'The PRESSOL meter connection safely integrates flow meters into any dispensing system. Standardised connection dimensions for universal compatibility. Robust and designed for long-term use.',
+                '23_295': 'The PRESSOL meter kit contains all components for easily retrofitting a flow meter. Delivery includes all connections, seals and brackets. Quickly installed, precise and reliable.',
+                'messbecher': 'The new PRESSOL measuring jug 2026 combines food-safe material with optimised graduation for maximum reading precision. Ideal for workshops and catering – robust, dishwasher-safe and comfortable to handle. The revised 2026 design sets new standards for precision jugs.',
+                'messbecher_gastro': 'The PRESSOL measuring jug gastro application shows how versatile precision measuring jugs are in everyday professional use. Whether portioning, mixing ratios or quick measurement under time pressure – the video demonstrates practical applications directly in the catering industry.',
+                'kanisterentlueftung': 'Safe container ventilation is an important protection against dangerous overpressure in fuel canisters. This video explains how the PRESSOL vented canister works and what safety advantages it offers. Essential for anyone who regularly works with fuel canisters.',
+                'adblue_fasspumpe': 'The FMT barrel pump 13040 impresses with the simplest operation when filling from AdBlue® drums. The video shows assembly and operation step by step – quick, safe and reliable for professional fleet use. A compact solution for daily AdBlue® supply.',
+                'tankfixx': 'The FMT TankFIXX system permanently protects fuel tanks against dirt, condensation and algae. This installation video guides you step by step through the simple assembly – perfect for vehicles, construction machinery and stationary tanks. Once installed, the system provides reliable long-term protection.',
+                'manufacturing_specialists': 'This brand film introduces PRESSOL as a leading manufacturer of lubrication technology and refuelling solutions. From development to production, all processes are carried out in-house with the highest quality control and precision. PRESSOL has stood for reliability and innovation for decades.',
+                'from_idea_to_reality': 'From the first idea to the finished product, this film accompanies the entire development process at PRESSOL. Engineers, designers and manufacturing experts work closely together to create robust solutions for demanding requirements. An insight into the innovation culture of a quality manufacturer.'
+            },
+            'FR': {
+                '12_633': 'La pompe à graisse standard PRESSOL PRELIxx garantit des performances constantes même après 40 000 cycles. La course variable permet une adaptation optimale à la contre-pression et au débit. Compatible avec les cartouches standard et tous les graisseurs courants.',
+                '12_062': "L'embout haute pression PRESSOL atteint de manière fiable même les points de graissage encrassés ou difficiles d'accès. La construction en acier robuste résiste à des pressions allant jusqu'à 500 bar. Compatible avec tous les accouplements de pompe à graisse PRESSOL.",
+                '18_072': "La pompe à graisse pneumatique PRESSOL permet un graissage continu sans fatigue physique. Branchez simplement sur l'alimentation en air comprimé – idéal pour les ateliers à forte demande. Traite les graisses jusqu'à NLGI 3.",
+                '12_630': "La pompe à graisse à une main PRESSOL est spécialement conçue pour le graissage d'une seule main. La course commutable permet un débit élevé ou une pression maximale. Parfaite pour les points de graissage difficiles d'accès.",
+                '45_319': "Le PRESSOL mobiBLUE 450 l est le réservoir mobile AdBlue® pour usage professionnel en flotte et atelier. Complet avec pompe intégrée, compteur et pistolet – prêt à l'emploi sur roulettes. Sûr, fiable et certifié.",
+                '23_163': "Le pistolet manuel PRESSOL en PP convient à la distribution de diesel, fioul et AdBlue®. Léger et résistant à la corrosion – idéal pour une utilisation fréquente et un nettoyage facile. Homologué pour tous les carburants courants.",
+                '23_176': 'Le pistolet automatique PRESSOL interrompt le flux de carburant automatiquement lors du remplissage. Sûr, sans projection et confortable – idéal pour les parcs automobiles et stations-service. Réduit le risque de débordement et les pertes de carburant.',
+                '13_055': 'La pompe rotative PRESSOL transfère diesel, fioul et huiles légères directement des fûts et citernes IBC. Commande manuelle simple sans alimentation électrique – utilisable partout. Robuste, peu entretien et résistant aux huiles minérales.',
+                '19_698': "Le compteur numérique PRESSOL mesure les quantités individuelles et totales avec précision. L'affichage rétroéclairé est lisible même en faible luminosité. Idéal pour la gestion professionnelle des carburants et liquides.",
+                '07_623': 'Le verre gradué PRESSOL de 3 l est fabriqué en plastique alimentaire résistant aux chocs. La graduation clairement lisible permet un dosage précis – apprécié en atelier et en restauration. Passable au lave-vaisselle et résistant à la chaleur.',
+                '13_012': "La pompe de fût PRESSOL SRL transfère huiles et carburants rapidement et en sécurité depuis des fûts de 60 l et 200 l. Le tube aspiration extensible s'adapte à différentes tailles. Robuste, auto-amorçante et disponible en plusieurs versions.",
+                '18_082': 'Le raccord pivotant Z PRESSOL permet une orientation libre du tuyau sans torsion. Il prévient les courbures et prolonge significativement la durée de vie du tuyau. Compatible avec les tuyaux haute pression standards.',
+                '19_768': "L'unité de pulvérisation mobile PRESSOL apporte air comprimé et produit partout. Entraînement pneumatique avec grand réservoir – idéal pour les travaux de conservation et nettoyage. Mobile, puissante et pratique.",
+                '18_616_051': "La pompe à graisse pneumatique PRESSOL 15:1 distribue la graisse directement depuis le bidon d'origine 50 kg ou 180 kg. Le rapport élevé permet aussi les graisses haute performance à forte viscosité. Conçue pour un fonctionnement continu en industrie.",
+                '18_516_051': "La pompe graisse et silicone PRESSOL traite graisses et silicones directement depuis le conditionnement d'origine. Entraînement pneumatique pour un fonctionnement continu sans fatigue. Changement de produit facile grâce à la conception modulaire.",
+                '18_870': "Le kit de transformation clapet de pied PRESSOL permet une transformation facile des pompes en aspiration. Chaque goutte du contenant est ainsi récupérée – économique et écologique. Compatible avec les modèles courants PRESSOL.",
+                '19_519': "L'embout de fût M 62 PRESSOL assure la connexion sûre des pompes aux fûts standard à filetage M 62. Construction en acier robuste pour une étanchéité durable et un changement rapide. Le filetage standard pour les fûts européens 200 l.",
+                '19_529': "L'embout de fût M 60 PRESSOL connecte les pompes aux fûts à filetage intérieur M 60. Idéal comme complément ou pièce de rechange. Robuste, étanche et facile à installer.",
+                '23_296': 'Le raccord compteur PRESSOL intègre les débitmètres en toute sécurité dans tout système de distribution. Dimensions de raccordement standardisées pour une compatibilité universelle. Robuste et conçu pour un usage durable.',
+                '23_295': "Le kit compteur PRESSOL contient tous les composants pour la pose facile d'un débitmètre. Livré avec tous les raccords, joints et supports. Montage rapide, précis et fiable.",
+                'messbecher': "Le nouveau verre gradué PRESSOL 2026 combine un matériau alimentaire avec une graduation optimisée pour une lisibilité maximale. Idéal pour ateliers et restauration – robuste, lavable au lave-vaisselle et agréable en main. La conception 2026 révisée établit de nouvelles normes.",
+                'messbecher_gastro': "L'application gastronomique du verre gradué PRESSOL montre la polyvalence des verres de précision dans le quotidien professionnel. Dosage, mélanges ou mesures rapides sous pression – la vidéo démontre les usages pratiques en restauration.",
+                'kanisterentlueftung': "La ventilation sécurisée des jerricans protège contre la surpression dangereuse des jerricans de carburant. Cette vidéo explique le fonctionnement du jerrican ventilé PRESSOL et ses avantages de sécurité. Indispensable pour toute personne travaillant régulièrement avec des jerricans.",
+                'adblue_fasspumpe': "La pompe de fût FMT 13040 se distingue par sa simplicité d'utilisation lors du remplissage depuis des fûts d'AdBlue®. La vidéo montre le montage et le fonctionnement étape par étape – rapide, sûr et fiable. Une solution compacte pour l'approvisionnement quotidien en AdBlue®.",
+                'tankfixx': "Le système FMT TankFIXX protège durablement les réservoirs de carburant contre les saletés, la condensation et les algues. Cette vidéo d'installation vous guide étape par étape – parfait pour véhicules, engins de chantier et réservoirs fixes. Une protection fiable sur le long terme.",
+                'manufacturing_specialists': "Ce film institutionnel présente PRESSOL comme fabricant leader de solutions de lubrification et de ravitaillement. Du développement à la production, tous les processus sont réalisés en interne avec le plus haut contrôle qualité. PRESSOL est synonyme de fiabilité et d'innovation depuis des décennies.",
+                'from_idea_to_reality': "De la première idée au produit fini, ce film accompagne l'ensemble du processus de développement chez PRESSOL. Ingénieurs, designers et experts en fabrication travaillent ensemble pour créer des solutions robustes. Un regard sur la culture d'innovation d'un fabricant de qualité."
+            },
+            'ES': {
+                '12_633': 'La pistola de engrase estándar PRESSOL PRELIxx ofrece rendimiento constante incluso después de 40.000 ciclos. La carrera variable permite adaptación óptima a la contrapresión y al caudal. Compatible con cartuchos estándar y todas las graseras comunes.',
+                '12_062': 'El acoplador de alta presión PRESSOL alcanza de forma fiable incluso los puntos de engrase más difíciles. La robusta construcción en acero soporta presiones de hasta 500 bar. Compatible con todos los acoplamientos de pistola PRESSOL.',
+                '18_072': 'La pistola de engrase neumática PRESSOL permite el engrase continuo sin fatiga física. Conecte simplemente al suministro de aire comprimido – ideal para talleres con alta demanda. Procesa grasas hasta NLGI 3.',
+                '12_630': 'La pistola de engrase de una mano PRESSOL está diseñada para engrasar con una sola mano. La carrera conmutable permite alto caudal o presión máxima. Perfecta para puntos de engrase de difícil acceso.',
+                '45_319': 'El PRESSOL mobiBLUE 450 l es el depósito móvil de AdBlue® para uso profesional en flotas y talleres. Completo con bomba, contador y pistola integrados – listo para usar sobre ruedas. Seguro, fiable y certificado.',
+                '23_163': 'La pistola manual PRESSOL en PP es adecuada para la distribución de gasóleo, gasoil y AdBlue®. Ligera y resistente a la corrosión – ideal para uso frecuente y limpieza fácil. Homologada para todos los combustibles habituales.',
+                '23_176': 'La pistola automática PRESSOL detiene automáticamente el flujo de combustible al llenarse el depósito. Segura, sin salpicaduras y cómoda – ideal para flotas y gasolineras. Reduce el riesgo de derrame y las pérdidas de combustible.',
+                '13_055': 'La bomba rotativa PRESSOL transfiere gasóleo, gasoil y aceites ligeros directamente desde bidones y depósitos IBC. Manejo sencillo con manivela sin necesidad de electricidad. Robusta, de bajo mantenimiento y resistente a aceites minerales.',
+                '19_698': 'El medidor digital PRESSOL registra cantidades individuales y totales con precisión y claridad. La pantalla iluminada es legible incluso en condiciones de poca luz. Ideal para la gestión profesional de combustibles y líquidos.',
+                '07_623': 'La jarra graduada PRESSOL de 3 l está fabricada en plástico alimentario irrompible. La graduación claramente legible permite una medición precisa – popular en talleres y hostelería. Apta para lavavajillas y resistente a la temperatura.',
+                '13_012': 'La bomba de bidón PRESSOL SRL transfiere aceites y combustibles de forma segura y rápida desde bidones de 60 l y 200 l. El tubo de aspiración extensible se adapta a distintos tamaños. Robusta, autocebante y disponible en diferentes materiales.',
+                '18_082': 'La junta giratoria en Z PRESSOL permite la orientación libre del manguito sin torsión. Evita los codos y prolonga significativamente la vida útil del manguito. Compatible con mangueras de alta presión estándar.',
+                '19_768': 'La unidad de pulverización móvil PRESSOL lleva aire comprimido y producto a cualquier puesto de trabajo. Accionamiento neumático con gran depósito – ideal para trabajos de conservación y limpieza. Móvil, potente y cómoda.',
+                '18_616_051': 'La bomba de grasa neumática PRESSOL 15:1 distribuye grasa directamente desde el envase original de 50 kg o 180 kg. La alta relación permite también las grasas de alto rendimiento de alta viscosidad. Diseñada para uso continuo en industria y talleres.',
+                '18_516_051': 'La bomba de grasa y silicona PRESSOL procesa grasas y siliconas directamente desde el envase original. Accionamiento neumático para funcionamiento continuo sin fatiga. Cambio de producto fácil gracias al diseño modular.',
+                '18_870': 'El kit de conversión de válvula de pie PRESSOL permite la fácil adaptación de bombas para funcionamiento por aspiración. Así se recupera hasta la última gota del envase. Compatible con los modelos habituales de bomba PRESSOL.',
+                '19_519': 'El tapón de bidón M 62 PRESSOL proporciona una conexión segura para bombas a bidones estándar con rosca M 62. Construcción robusta en acero para un sellado duradero y cambio rápido de bomba. La rosca estándar para bidones europeos de 200 l.',
+                '19_529': 'El tapón de bidón M 60 PRESSOL conecta bombas de forma segura a bidones con rosca interior M 60. Ideal como complemento o repuesto para sistemas existentes. Robusto, estanco y fácil de instalar.',
+                '23_296': 'La conexión del medidor PRESSOL integra caudalímetros de forma segura en cualquier sistema de distribución. Dimensiones de conexión estandarizadas para compatibilidad universal. Robusto y diseñado para uso prolongado.',
+                '23_295': 'El kit medidor PRESSOL contiene todos los componentes para instalar fácilmente un caudalímetro. Incluye todas las conexiones, juntas y soportes. Instalación rápida, precisa y fiable.',
+                'messbecher': 'La nueva jarra graduada PRESSOL 2026 combina material alimentario con graduación optimizada para máxima precisión de lectura. Ideal para talleres y hostelería – robusta, apta para lavavajillas y cómoda de usar. El diseño revisado 2026 establece nuevos estándares.',
+                'messbecher_gastro': 'La aplicación gastronómica de la jarra graduada PRESSOL muestra la versatilidad de las jarras de precisión en el uso profesional diario. Dosificación, mezclas o medición rápida bajo presión de tiempo – el vídeo demuestra los usos prácticos en hostelería.',
+                'kanisterentlueftung': 'La ventilación segura de bidones protege contra la sobrepresión peligrosa en bidones de combustible. Este vídeo explica cómo funciona el bidón ventilado PRESSOL y qué ventajas de seguridad ofrece. Imprescindible para quien trabaja regularmente con bidones de combustible.',
+                'adblue_fasspumpe': 'La bomba de bidón FMT 13040 destaca por su sencilla operación al llenar desde bidones de AdBlue®. El vídeo muestra el montaje y el funcionamiento paso a paso – rápido, seguro y fiable. Una solución compacta para el suministro diario de AdBlue®.',
+                'tankfixx': 'El sistema FMT TankFIXX protege permanentemente los depósitos de combustible contra suciedad, condensación y algas. Este vídeo de instalación guía paso a paso a través del sencillo montaje – perfecto para vehículos, maquinaria de obra y depósitos fijos. Una vez instalado, protege a largo plazo.',
+                'manufacturing_specialists': 'Este vídeo corporativo presenta a PRESSOL como fabricante líder de soluciones de lubricación y repostaje. Desde el desarrollo hasta la producción, todos los procesos se realizan internamente con el mayor control de calidad. PRESSOL es sinónimo de fiabilidad e innovación desde hace décadas.',
+                'from_idea_to_reality': 'Desde la primera idea hasta el producto terminado, este film acompaña todo el proceso de desarrollo en PRESSOL. Ingenieros, diseñadores y expertos en fabricación trabajan juntos para crear soluciones robustas. Una visión de la cultura de innovación de un fabricante de calidad.'
+            },
+            'NL': {
+                '12_633': 'Het PRESSOL PRELIxx standaard vetspuit levert constante smeerprestaties zelfs na 40.000 slagen. De variabele slag maakt optimale aanpassing aan tegendruk en debiet mogelijk. Compatibel met standaard cartridges en alle gangbare smeerkoppen.',
+                '12_062': 'De PRESSOL hogedrukkop bereikt betrouwbaar zelfs veraarde of moeilijk toegankelijke smeerpunten. De robuuste staalconstructie weerstaat drukken tot 500 bar. Past op alle PRESSOL vetspuitleidingkoppelingen.',
+                '18_072': 'De pneumatische PRESSOL vetspuit maakt continu smeren mogelijk zonder lichamelijke vermoeidheid. Sluit eenvoudig aan op de persluchtvoorziening – ideaal voor werkplaatsen met hoge dagelijkse smeerbehoefte. Verwerkt vetten tot NLGI 3.',
+                '12_630': 'De PRESSOL eenhandsvetspuit is speciaal ontworpen voor smeren met één hand. De omschakelbare slag maakt hoog debiet of maximale druk mogelijk. Ideaal voor moeilijk bereikbare smeerpunten.',
+                '45_319': 'De PRESSOL mobiBLUE 450 l is de mobiele AdBlue®-tank voor professioneel wagenparkbeheer en werkplaatsgebruik. Compleet met geïntegreerde pomp, teller en tapventiel – direct inzetbaar op wielen. Veilig, betrouwbaar en gecertificeerd.',
+                '23_163': 'Het PRESSOL tapventiel van PP is geschikt voor handmatige afgifte van diesel, stookolie en AdBlue®. Licht en corrosiebestendig – ideaal voor frequent gebruik en eenvoudige reiniging. Goedgekeurd voor alle gangbare brandstoffen.',
+                '23_176': 'Het PRESSOL automatisch tapventiel stopt de brandstofstroom automatisch bij een volle tank. Veilig, spatvrij en comfortabel – ideaal voor wagenparken en tankstations. Vermindert overlooprisico en brandstofverlies betrouwbaar.',
+                '13_055': 'De PRESSOL rotatiepomp pompt diesel, stookolie en lichte oliën direct uit vaten en IBC-tanks. Eenvoudige handbediening zonder stroom – overal inzetbaar. Robuust, onderhoudsarm en bestand tegen minerale oliën.',
+                '19_698': 'De digitale PRESSOL doorstroommeter registreert enkelvoudige en totale hoeveelheden nauwkeurig en overzichtelijk. Het verlichte display is ook bij slechte verlichting goed afleesbaar. Ideaal voor professioneel brandstof- en vloeistofbeheer.',
+                '07_623': 'De PRESSOL maatbeker met 3 l inhoud is gemaakt van voedselveilig, breukvast kunststof. De duidelijk leesbare schaalverdeling maakt nauwkeurig meten mogelijk – geliefd in werkplaats en horeca. Vaatwasmachinebestendig en temperatuurbestendig.',
+                '13_012': 'De PRESSOL vatpomp SRL pompt oliën en brandstoffen snel en veilig uit vaten van 60 l en 200 l. De verlengbare zuigbuis past zich aan aan verschillende vatgroottes. Robuust, zelfaanzuigend en in verschillende materiaaluitvoeringen beschikbaar.',
+                '18_082': 'Het PRESSOL Z-draaischarnier maakt torsievrije slangaansluiting in alle richtingen mogelijk. Het voorkomt slangknikken en verlengt de levensduur aanzienlijk. Compatibel met standaard hogedrukslangen.',
+                '19_768': 'De mobiele PRESSOL spuitunit brengt perslucht en spuitmedium flexibel naar elke werkplek. Pneumatisch aangedreven met grote voorraadtank – ideaal voor conserverings- en reinigingswerk. Mobiel, krachtig en comfortabel.',
+                '18_616_051': 'De pneumatische PRESSOL vetpomp 15:1 pompt vet direct uit de originele verpakking van 50 kg of 180 kg. De hoge overbrengingsverhouding maakt ook de overdracht van hoogviskeuze vetten mogelijk. Ontworpen voor continu gebruik in industrie en werkplaats.',
+                '18_516_051': 'De PRESSOL vet- en siliconenpomp verwerkt vetten en siliconen direct uit de originele verpakking. Pneumatisch aangedreven voor continu gebruik zonder vermoeidheid. Eenvoudige mediawisseling dankzij modulair ontwerp.',
+                '18_870': 'De PRESSOL voetventielombouwset maakt eenvoudige ombouw van pompen voor aanzuigbedrijf mogelijk. Zo wordt ook de laatste druppel uit de verpakking gehaald – economisch en milieuvriendelijk. Compatibel met gangbare PRESSOL pompmodellen.',
+                '19_519': 'De PRESSOL vatverschroeiing M 62 biedt een veilige aansluiting voor pompen op standaard vaten met M 62-draad. Robuuste staaluitvoering voor blijvende dichtheid en snelle pompwisseling. De standaard draad voor Europese vaten van 200 l.',
+                '19_529': 'De PRESSOL vatverschroeiing M 60 verbindt pompen veilig met vaten met M 60-binnendraad. Ideaal als aanvulling of vervangend onderdeel voor bestaande systemen. Robuust, dicht en eenvoudig te monteren.',
+                '23_296': 'De PRESSOL meteraansluiting integreert doorstroommeter veilig en dicht in elk afgiftesysteem. Gestandaardiseerde aansluitafmetingen voor universele compatibiliteit. Robuust en ontworpen voor duurzaam gebruik.',
+                '23_295': 'De PRESSOL meterkit bevat alle componenten voor eenvoudige naplaatsing van een doorstroommeter. Inclusief alle aansluitingen, afdichtingen en beugels. Snel gemonteerd, nauwkeurig en betrouwbaar.',
+                'messbecher': 'De nieuwe PRESSOL maatbeker 2026 combineert voedselveilig materiaal met geoptimaliseerde schaalverdeling voor maximale leesbaarheid. Ideaal voor werkplaats en horeca – robuust, vaatwasmachinebestendig en prettig in gebruik. Het herziene 2026-ontwerp stelt nieuwe normen.',
+                'messbecher_gastro': 'De PRESSOL maatbeker gastrogebruik toont de veelzijdigheid van precisiemaatbekers in het dagelijks professioneel gebruik. Of het nu om portionering, mengverhoudingen of snel meten gaat – de video toont praktische toepassingen in de horeca.',
+                'kanisterentlueftung': 'Veilige kanisterventilatie beschermt tegen gevaarlijke overdruk in brandstofkannen. Deze video legt uit hoe de PRESSOL geventileerde jerrycan werkt en welke veiligheidsvoordelen hij biedt. Onmisbaar voor iedereen die regelmatig met brandstofkannen werkt.',
+                'adblue_fasspumpe': 'De FMT vatpomp 13040 imponiert door zijn eenvoudige bediening bij het vullen vanuit AdBlue®-vaten. De video toont montage en bediening stap voor stap – snel, veilig en betrouwbaar. Een compacte oplossing voor de dagelijkse AdBlue®-voorziening.',
+                'tankfixx': 'Het FMT TankFIXX-systeem beschermt brandstoftanks permanent tegen vuil, condensatie en algen. Deze installatievideo begeleidt stap voor stap door de eenvoudige montage – perfect voor voertuigen, bouwmachines en vaste tanks. Eenmaal geïnstalleerd biedt het betrouwbare langetermijnbescherming.',
+                'manufacturing_specialists': 'Deze bedrijfsfilm presenteert PRESSOL als toonaangevende fabrikant van smeertechnologie en tankoplossingen. Van ontwikkeling tot productie worden alle processen intern uitgevoerd met de hoogste kwaliteitscontrole. PRESSOL staat al decennia voor betrouwbaarheid en innovatie.',
+                'from_idea_to_reality': 'Van het eerste idee tot het afgewerkte product begeleidt deze film het volledige ontwikkelingsproces bij PRESSOL. Ingenieurs, ontwerpers en productie-experts werken nauw samen om robuuste oplossingen te creëren. Een blik op de innovatiecultuur van een kwaliteitsfabrikant.'
+            },
+            'CZ': {
+                '12_633': 'Standardní mazací lis PRESSOL PRELIxx dodává konstantní mazací výkon i po 40 000 pracovních cyklech. Variabilní zdvih umožňuje optimální přizpůsobení protitlaku a průtoku. Kompatibilní se standardními kazetami a všemi běžnými mazacími niplemi.',
+                '12_062': 'Sklíčidlová spojka PRESSOL spolehlivě dosáhne i zanesená nebo těžko přístupná mazací místa. Robustní ocelová konstrukce odolává tlakům až 500 bar. Pasuje na všechny mazací lisy PRESSOL.',
+                '18_072': 'Pneumatický mazací lis PRESSOL umožňuje kontinuální mazání bez fyzické únavy. Jednoduše připojte ke zdroji stlačeného vzduchu – ideální pro dílny s vysokou denní potřebou mazání. Zpracovává maziva až do třídy NLGI 3.',
+                '12_630': 'Jednoruční mazací lis PRESSOL byl speciálně vyvinut pro mazání jednou rukou. Přepínatelný zdvih umožňuje volbu mezi vysokým průtokem nebo maximálním tlakem. Ideální pro těžko přístupná mazací místa.',
+                '45_319': 'PRESSOL mobiBLUE 450 l je mobilní nádrž na AdBlue® pro profesionální provoz flotily a dílny. Kompletní s integrovaným čerpadlem, průtokoměrem a výdejní pistolí – připraveno k použití na kolečkách. Bezpečný, spolehlivý a certifikovaný.',
+                '23_163': 'Výdejní pistole PRESSOL z PP je vhodná pro ruční výdej nafty, topného oleje a AdBlue®. Lehká a odolná proti korozi – ideální pro časté použití a snadné čištění. Schválena pro všechna běžná paliva.',
+                '23_176': 'Automatická výdejní pistole PRESSOL automaticky zastaví průtok paliva při plném nádrži. Bezpečná, bez stříkání a pohodlná – ideální pro flotily a čerpací stanice. Spolehlivě snižuje riziko přeplnění a ztráty paliva.',
+                '13_055': 'Rotační čerpadlo PRESSOL přečerpává naftu, topný olej a lehké oleje přímo ze sudů a IBC nádrží. Jednoduché ruční ovládání bez elektrického připojení – použitelné kdekoliv. Robustní, nenáročné na údržbu a odolné vůči minerálním olejům.',
+                '19_698': 'Digitální průtokoměr PRESSOL zaznamenává jednotlivá a celková množství přesně a přehledně. Podsvícený displej je dobře čitelný i za špatných světelných podmínek. Ideální pro profesionální správu paliv a kapalin.',
+                '07_623': 'Odměrka PRESSOL o objemu 3 l je vyrobena z potravinářsky bezpečného, nerozbitného plastu. Dobře čitelná stupnice umožňuje přesné měření – oblíbená v dílnách i gastronomii. Vhodná do myčky nádobí a teplotně odolná.',
+                '13_012': 'Sudové čerpadlo PRESSOL SRL přečerpává oleje a paliva bezpečně a rychle ze sudů 60 l a 200 l. Prodlužitelná sací trubice se přizpůsobí různým velikostem sudů. Robustní, samosací a dostupné v různých materiálových provedeních.',
+                '18_082': 'Otočný kloub Z PRESSOL umožňuje torzně volné vedení hadice ve všech směrech. Zabraňuje ohybu hadice a výrazně prodlužuje její životnost. Kompatibilní se standardními vysokotlakými hadicemi.',
+                '19_768': 'Mobilní postřikovač PRESSOL přináší stlačený vzduch a postřikovací médium flexibilně na každé pracoviště. Pneumatický pohon s velkou zásobní nádrží – ideální pro konzervační a čisticí práce. Mobilní, výkonný a pohodlný.',
+                '18_616_051': 'Pneumatické mazací čerpadlo PRESSOL 15:1 dodává mazivo přímo z originálního balení 50 kg nebo 180 kg. Vysoký převodový poměr umožňuje i dopravu vysoce výkonných maziv. Navrženo pro nepřetržitý provoz v průmyslu a dílnách.',
+                '18_516_051': 'Čerpadlo na mazivo a silikon PRESSOL zpracovává maziva a silikony přímo z originálního balení. Pneumatický pohon pro nepřetržitý provoz bez únavy – ideální pro karosářské práce. Snadná výměna média díky modulárnímu provedení.',
+                '18_870': 'Sada pro přestavbu zpětného ventilu PRESSOL umožňuje snadnou přestavbu čerpadel na sací provoz. Tak je z balení vytažena i poslední kapka – hospodárné a ekologické. Kompatibilní s běžnými modely čerpadel PRESSOL.',
+                '19_519': 'Šroubení sudu M 62 PRESSOL zajišťuje bezpečné připojení čerpadel ke standardním sudům se závitem M 62. Robustní ocelové provedení pro trvalou těsnost a rychlou výměnu čerpadla. Standardní závit pro evropské sudy 200 l.',
+                '19_529': 'Šroubení sudu M 60 PRESSOL bezpečně spojuje čerpadla se sudy s vnitřním závitem M 60. Ideální jako doplněk nebo náhradní díl pro stávající systémy. Robustní, těsné a snadno montovatelné.',
+                '23_296': 'Přípojka průtokoměru PRESSOL bezpečně a těsně integruje průtokoměry do každého výdejního systému. Standardizované rozměry přípojek pro univerzální kompatibilitu. Robustní a navržená pro trvalé použití.',
+                '23_295': 'Sada průtokoměru PRESSOL obsahuje všechny součásti pro snadnou dodatečnou montáž průtokoměru. V dodávce jsou zahrnuty všechny přípojky, těsnění a držáky. Rychlá montáž, přesná a spolehlivá.',
+                'messbecher': 'Nová odměrka PRESSOL 2026 kombinuje materiál vhodný pro potraviny s optimalizovanou stupnicí pro maximální přesnost odečítání. Ideální pro dílny a gastronomii – robustní, vhodná do myčky a příjemná na rukou. Přepracovaný design 2026 nastavuje nové standardy.',
+                'messbecher_gastro': 'PRESSOL gastronomická aplikace odměrky ukazuje všestrannost přesných odměrek v každodenním profesionálním provozu. Dávkování, míchání nebo rychlé měření pod časovým tlakem – video ukazuje praktické využití v gastronomii.',
+                'kanisterentlueftung': 'Bezpečné odvzdušnění kanistrů chrání před nebezpečným přetlakem v palivových kanistrech. Toto video vysvětluje funkci odvzdušňovacího kanistr PRESSOL a jeho bezpečnostní výhody. Nezbytné pro každého, kdo pravidelně pracuje s palivovými kanistrami.',
+                'adblue_fasspumpe': 'Sudové čerpadlo FMT 13040 přesvědčuje jednoduchou obsluhou při plnění z AdBlue® sudů. Video ukazuje montáž a provoz krok za krokem – rychle, bezpečně a spolehlivě. Kompaktní řešení pro každodenní zásobování AdBlue®.',
+                'tankfixx': 'Systém FMT TankFIXX chrání palivové nádrže trvale před nečistotami, kondenzací a řasami. Toto instalační video provede krok za krokem jednoduchou montáží – ideální pro vozidla, stavební stroje a stacionární nádrže. Po instalaci poskytuje spolehlivou dlouhodobou ochranu.',
+                'manufacturing_specialists': 'Tento firemní film představuje PRESSOL jako předního výrobce mazacích technologií a zásobovacích řešení. Od vývoje po výrobu probíhají všechny procesy interně s nejvyšší kontrolou kvality. PRESSOL stojí za spolehlivostí a inovacemi po desetiletí.',
+                'from_idea_to_reality': 'Od první myšlenky k hotovému produktu provází tento film celý vývojový proces v PRESSOL. Inženýři, designéři a výrobní odborníci úzce spolupracují při tvorbě robustních řešení. Pohled do inovační kultury výrobce kvality.'
+            },
+            'PT': {
+                '12_633': 'A pistola de lubrificação padrão PRESSOL PRELIxx oferece desempenho constante mesmo após 40.000 ciclos. A carreira variável permite a adaptação ideal à contrapressão e ao caudal. Compatível com cartuchos padrão e todos os nipletes de lubrificação comuns.',
+                '12_062': 'O acoplador de alta pressão PRESSOL atinge de forma fiável mesmo os pontos de lubrificação mais obstruídos ou difíceis de aceder. A construção robusta em aço suporta pressões até 500 bar. Compatível com todos os acoplamentos de pistola PRESSOL.',
+                '18_072': 'A pistola de lubrificação pneumática PRESSOL permite a lubrificação contínua sem fadiga física. Basta ligar ao fornecimento de ar comprimido – ideal para oficinas com elevada necessidade diária. Processa massas até NLGI 3.',
+                '12_630': 'A pistola de lubrificação de uma mão PRESSOL foi especialmente desenvolvida para lubrificar com uma só mão. A carreira comutável permite alto caudal ou pressão máxima. Perfeita para pontos de lubrificação de difícil acesso.',
+                '45_319': 'O PRESSOL mobiBLUE 450 l é o reservatório móvel de AdBlue® para uso profissional em frotas e oficinas. Completo com bomba integrada, contador e pistola – pronto a usar sobre rodas. Seguro, fiável e certificado.',
+                '23_163': 'A pistola manual PRESSOL em PP é adequada para a distribuição manual de gasóleo e AdBlue®. Leve e resistente à corrosão – ideal para uso frequente e limpeza fácil. Aprovada para todos os combustíveis comuns.',
+                '23_176': 'A pistola automática PRESSOL interrompe automaticamente o fluxo de combustível quando o depósito estiver cheio. Segura, sem salpicos e confortável – ideal para frotas e postos de abastecimento. Reduz de forma fiável o risco de derrame.',
+                '13_055': 'A bomba rotativa PRESSOL transfere gasóleo e óleos leves diretamente de bidons e reservatórios IBC. Operação manual simples sem ligação elétrica – utilizável em qualquer lugar. Robusta, de baixa manutenção e resistente a óleos minerais.',
+                '19_698': 'O contador digital PRESSOL regista quantidades individuais e totais com precisão e clareza. O ecrã iluminado é fácil de ler mesmo em condições de fraca luminosidade. Ideal para a gestão profissional de combustíveis e líquidos.',
+                '07_623': 'O copo medidor PRESSOL de 3 l é fabricado em plástico alimentar resistente a impactos. A graduação claramente legível permite uma medição precisa – popular em oficinas e restauração. Lavável em máquina e resistente à temperatura.',
+                '13_012': 'A bomba de barril PRESSOL SRL transfere óleos e combustíveis de forma segura e rápida a partir de bidons de 60 l e 200 l. O tubo de aspiração extensível adapta-se a diferentes tamanhos. Robusta, autoaspirante e disponível em vários materiais.',
+                '18_082': 'A junta rotativa em Z PRESSOL permite uma orientação livre da mangueira em todas as direções sem torção. Evita o dobramento das mangueiras e prolonga significativamente a sua vida útil. Compatível com mangueiras de alta pressão padrão.',
+                '19_768': 'A unidade de pulverização móvel PRESSOL leva ar comprimido e produto de forma flexível a qualquer posto. Acionamento pneumático com grande reservatório – ideal para trabalhos de conservação e limpeza. Móvel, potente e confortável.',
+                '18_616_051': 'A bomba de massa pneumática PRESSOL 15:1 distribui massa lubrificante diretamente a partir da embalagem original de 50 kg ou 180 kg. A alta relação de transmissão permite também as massas de alta performance. Concebida para funcionamento contínuo em indústria e oficinas.',
+                '18_516_051': 'A bomba de massa e silicone PRESSOL processa massas e silicones diretamente a partir da embalagem original. Acionamento pneumático para funcionamento contínuo sem fadiga. Fácil troca de produto graças ao design modular.',
+                '18_870': 'O kit de conversão de válvula de pé PRESSOL permite a fácil reconversão de bombas para funcionamento por aspiração. Assim recupera-se até à última gota da embalagem – económico e sustentável. Compatível com os modelos comuns de bomba PRESSOL.',
+                '19_519': 'O batoque de barril M 62 PRESSOL proporciona uma ligação segura para bombas a bidons padrão com rosca M 62. Construção robusta em aço para vedação duradoura e troca rápida de bomba. A rosca padrão para bidons europeus de 200 l.',
+                '19_529': 'O batoque de barril M 60 PRESSOL liga bombas de forma segura a bidons com rosca interior M 60. Ideal como complemento ou peça de substituição para sistemas existentes. Robusto, estanque e fácil de montar.',
+                '23_296': 'A ligação do medidor PRESSOL integra caudalímetros de forma segura e estanque em qualquer sistema de distribuição. Dimensões de ligação normalizadas para compatibilidade universal. Robusto e concebido para uso duradouro.',
+                '23_295': 'O kit medidor PRESSOL contém todos os componentes para a fácil instalação adicional de um caudalímetro. O fornecimento inclui todas as ligações, vedações e suportes. Montagem rápida, precisa e fiável.',
+                'messbecher': 'O novo copo medidor PRESSOL 2026 combina material alimentar com graduação otimizada para máxima precisão de leitura. Ideal para oficinas e restauração – robusto, lavável em máquina e confortável de usar. O design revisto 2026 define novos padrões.',
+                'messbecher_gastro': 'A aplicação gastronómica do copo medidor PRESSOL mostra a versatilidade dos copos de precisão no uso profissional diário. Dosagem, proporções de mistura ou medição rápida sob pressão – o vídeo demonstra aplicações práticas na restauração.',
+                'kanisterentlueftung': 'A ventilação segura de recipientes protege contra a sobrepressão perigosa em recipientes de combustível. Este vídeo explica como funciona o recipiente ventilado PRESSOL e que vantagens de segurança oferece. Indispensável para quem trabalha regularmente com recipientes de combustível.',
+                'adblue_fasspumpe': 'A bomba de barril FMT 13040 destaca-se pela simplicidade de operação ao encher a partir de bidons de AdBlue®. O vídeo mostra a montagem e o funcionamento passo a passo – rápido, seguro e fiável. Uma solução compacta para o abastecimento diário de AdBlue®.',
+                'tankfixx': 'O sistema FMT TankFIXX protege permanentemente os depósitos de combustível contra sujidade, condensação e algas. Este vídeo de instalação guia passo a passo pela montagem simples – perfeito para veículos, máquinas de construção e depósitos estacionários. Uma vez instalado, proporciona proteção fiável a longo prazo.',
+                'manufacturing_specialists': 'Este filme institucional apresenta a PRESSOL como fabricante líder de soluções de lubrificação e abastecimento. Do desenvolvimento à produção, todos os processos são realizados internamente com o mais alto controlo de qualidade. A PRESSOL é sinónimo de fiabilidade e inovação há décadas.',
+                'from_idea_to_reality': 'Da primeira ideia ao produto acabado, este filme acompanha todo o processo de desenvolvimento na PRESSOL. Engenheiros, designers e especialistas em fabricação trabalham juntos para criar soluções robustas. Uma visão da cultura de inovação de um fabricante de qualidade.'
+            }
+        };
+
+        function getDesc(id) {
+            const d = videoDesc[activeLang] && videoDesc[activeLang][id]
+                ? videoDesc[activeLang][id]
+                : (videoDesc['EN'] && videoDesc['EN'][id] ? videoDesc['EN'][id] : '');
+            return d;
+        }
+
+        function expandDesc() {
+            document.getElementById('video-desc-inner').classList.replace('desc-collapsed','desc-expanded');
+            document.getElementById('video-desc-more').style.display = 'none';
+        }
+
+        // ── Categories ────────────────────────────────────────────────────
+        const cats = {
+            "Schmiergeräte": ["12_633", "12_062", "18_072", "12_630"],
+            "Tankanlagen":   ["45_319", "23_163", "23_176", "13_055"],
+            "Werkstatt":     ["19_698", "07_623", "13_012", "18_082"],
+            "Pneumatik":     ["19_768", "18_616_051", "18_516_051", "18_870"],
+            "Zubehör":       ["19_519", "19_529", "23_296", "23_295"],
+            "Praxis":        ["messbecher", "messbecher_gastro", "kanisterentlueftung", "adblue_fasspumpe", "tankfixx"],
+            "Ueberuns":      ["manufacturing_specialists", "from_idea_to_reality"]
+        };
+
+        let activeLang = 'DE', activeCat = "Schmiergeräte";
+
+        function t(key) {
+            return (i18n[activeLang] && i18n[activeLang][key]) ? i18n[activeLang][key] : (i18n['EN'][key] || key.replace(/_/g, ' '));
+        }
+
+        function renderLangs() {
+            const langs = ['DE','EN','CZ','NL','FR','ES','PT'];
+            const chevron = `<svg style="width:9px;height:9px;margin-left:3px;flex-shrink:0;opacity:0.8;" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>`;
+            const grid = langs.map(l =>
+                `<button onclick="setLang('${l}'); event.stopPropagation()"
+                         class="w-9 h-8 border font-bold text-[10px] transition-colors ${activeLang === l ? 'bg-pBlue text-white border-pBlue' : 'border-pGray text-pAnthrazit/40 hover:border-pBlue'}">${l}</button>`
+            ).join('');
+            const mobileHtml = `
+                <button onclick="toggleLangMenu(event)"
+                        class="h-[29px] px-3 border border-pBlue bg-pBlue text-white font-bold text-[10px] flex items-center select-none">
+                    <span>${activeLang}</span>${chevron}
+                </button>
+                <div class="lang-menu hidden" style="position:absolute;right:0;top:100%;margin-top:3px;z-index:50;background:white;border:1px solid #DADADA;box-shadow:0 4px 14px rgba(0,0,0,0.10);padding:6px;">
+                    <div style="display:grid;grid-template-columns:repeat(4,auto);gap:4px;">${grid}</div>
+                </div>`;
+            const mob = document.getElementById('lang-picker-mobile');
+            if (mob) mob.innerHTML = mobileHtml;
+
+            const desktopHtml = `<div style="display:flex;gap:4px;align-items:center;">` +
+                langs.map(l =>
+                    `<button onclick="setLang('${l}')"
+                             class="w-8 h-6 border font-bold text-[9px] ${activeLang === l ? 'bg-pBlue text-white border-pBlue' : 'border-pGray text-pAnthrazit/40 hover:border-pBlue'}">${l}</button>`
+                ).join('') + `</div>`;
+            const desk = document.getElementById('lang-picker-desktop');
+            if (desk) desk.innerHTML = desktopHtml;
+        }
+
+        function toggleLangMenu(e) {
+            e.stopPropagation();
+            const menus = document.querySelectorAll('.lang-menu');
+            const isOpen = [...menus].some(m => !m.classList.contains('hidden'));
+            menus.forEach(m => m.classList.add('hidden'));
+            if (!isOpen) {
+                menus.forEach(m => {
+                    m.classList.remove('hidden');
+                    m.style.animation = 'none';
+                    void m.offsetWidth;
+                    m.style.animation = 'langMenuOpen 0.2s cubic-bezier(0.25,0.46,0.45,0.94) forwards';
+                });
+            }
+        }
+        document.addEventListener('click', () => {
+            document.querySelectorAll('.lang-menu').forEach(m => m.classList.add('hidden'));
+        });
+
+        function renderNav() {
+            document.getElementById('nav-groups').innerHTML = Object.keys(cats).map(c => `
+                <button onclick="loadCategory('${c}')" class="whitespace-nowrap flex-shrink-0 text-sm font-[900] uppercase pb-2 border-b-4 transition-all ${activeCat === c ? 'border-pOrange text-pAnthrazit' : 'border-transparent text-pAnthrazit/40 hover:text-pBlue'}">${t(c)}</button>
+            `).join('');
+        }
+
+        let _langAnim = false;
+
+        function loadCategory(cat) {
+            activeCat = cat;
+            renderNav();
+            document.getElementById('sidebar-label').innerText = t('Playlist');
+            const list = document.getElementById('sidebar-list');
+            const animCls   = _langAnim ? 'lang-enter' : 'fade-up';
+            const animDelay = _langAnim ? (i) => i * 75 : (i) => 260 + i * 65;
+
+            list.innerHTML = cats[cat].map((id, i) => {
+                const isVimeo = !!vimeoMap[id];
+                const thumbEl = isVimeo
+                    ? `<div class="vimeo-thumb"><svg style="width:30px;height:30px;opacity:0.85;" fill="white" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>`
+                    : `<img src="https://videohub.pressol.iol.eu/thumbs/${id}_${activeLang}.jpg" class="w-full h-full object-cover" loading="lazy">`;
+                const metaEl = isVimeo
+                    ? ``
+                    : `<p class="text-[10px] font-[900] text-pBlue uppercase mb-1">${t('SKU')} ${id.replace(/_/g, ' ')}</p>`;
+                return `
+                <div data-vid="${id}" onclick="switchVideo('${id}')" class="cursor-pointer group flex gap-4 items-center py-3 ${animCls}" style="animation-delay:${animDelay(i)}ms">
+                    <div class="w-44 aspect-video border border-pGray overflow-hidden bg-white group-hover:border-pBlue transition-all flex-shrink-0">
+                        ${thumbEl}
+                    </div>
+                    <div class="flex-1 min-w-0 border-b border-pGray pb-2">
+                        ${metaEl}
+                        <p class="text-sm font-semibold text-pAnthrazit leading-tight group-hover:text-pBlue">${t(id)}</p>
+                    </div>
+                </div>`;
+            }).join('');
+            switchVideo(cats[cat][0], true);
+        }
+
+        function switchVideo(id, isAuto = false) {
+            const isVimeo = !!vimeoMap[id];
+            activeVideoMode = isVimeo ? 'vimeo' : 'mp4';
+
+            const player  = document.getElementById('main-player');
+            const vimeoEl = document.getElementById('vimeo-player');
+            const fade    = document.getElementById('fade-overlay');
+            const bar     = document.getElementById('ctrl-bar');
+
+            // ② Active playlist item highlight
+            document.querySelectorAll('#sidebar-list [data-vid]').forEach(el => el.classList.remove('playlist-active'));
+            const activeItem = document.querySelector(`#sidebar-list [data-vid="${id}"]`);
+            if (activeItem) activeItem.classList.add('playlist-active');
+
+            // ④ Product name + SKU
+            const nameEl = document.getElementById('display-name');
+            const skuEl  = document.getElementById('display-sku');
+            const sepEl  = document.getElementById('display-separator');
+            const updateMeta = () => {
+                nameEl.innerText = t(id);
+                skuEl.innerText  = isVimeo ? '' : t('SKU') + ' ' + id.replace(/_/g, ' ');
+                if (sepEl) sepEl.style.display = isVimeo ? 'none' : '';
+            };
+            if (!isAuto && nameEl.innerText) {
+                nameEl.style.opacity = '0'; skuEl.style.opacity = '0';
+                setTimeout(() => { updateMeta(); nameEl.style.opacity = '1'; skuEl.style.opacity = '1'; }, 190);
+            } else {
+                updateMeta();
+            }
+
+            // ⑧ Description update + collapse reset
+            const descEl    = document.getElementById('video-desc-text');
+            const descInner = document.getElementById('video-desc-inner');
+            const moreBtn   = document.getElementById('video-desc-more');
+            if (descEl) descEl.textContent = getDesc(id);
+            if (descInner) { descInner.classList.remove('desc-expanded'); descInner.classList.add('desc-collapsed'); }
+            if (moreBtn) { moreBtn.style.display = ''; moreBtn.textContent = t('Read_more') + ' ↓'; }
+
+            const doSwitch = () => {
+                if (isVimeo) {
+                    // Stop MP4 and show Vimeo iframe
+                    player.pause();
+                    player.removeAttribute('src');
+                    player.style.display = 'none';
+                    if (bar) bar.classList.remove('visible');
+                    vimeoEl.style.display = 'block';
+                    const vid = vimeoMap[id][activeLang] || vimeoMap[id]['EN'];
+                    vimeoEl.src = `https://player.vimeo.com/video/${vid}?autoplay=1&title=0&byline=0&portrait=0&dnt=1`;
+                    if (fade) fade.style.opacity = '0';
+                } else {
+                    // Stop Vimeo and show MP4 player
+                    vimeoEl.src = '';
+                    vimeoEl.style.display = 'none';
+                    player.style.display = 'block';
+                    player.src = `https://videohub.pressol.iol.eu/frames/${id}_${activeLang}.mp4`;
+                    player.addEventListener('canplay', () => {
+                        player.play().catch(e => console.warn('play() blocked:', e));
+                        setTimeout(() => { if (fade) fade.style.opacity = '0'; }, 40);
+                    }, { once: true });
+                }
+            };
+
+            if (isAuto) {
+                doSwitch();
+            } else {
+                fade.style.opacity = '1';
+                setTimeout(doSwitch, 300);
+            }
+        }
+
+        function setLang(l) {
+            document.querySelectorAll('.lang-menu').forEach(m => m.classList.add('hidden'));
+            document.querySelectorAll('#sidebar-list [data-vid]').forEach(el => el.classList.add('lang-exit'));
+
+            const nav = document.getElementById('nav-wrapper');
+            nav.classList.add('shimmer');
+            setTimeout(() => nav.classList.remove('shimmer'), 1400);
+
+            setTimeout(() => {
+                activeLang = l;
+                renderLangs();
+                _langAnim = true;
+                loadCategory(activeCat);
+                _langAnim = false;
+            }, 320);
+        }
+
+        // ── MP4 player controls (guarded against Vimeo mode) ─────────────
+        function syncVolIcons() {
+            if (activeVideoMode === 'vimeo') return;
+            const p = document.getElementById('main-player');
+            const muted = p.muted || p.volume === 0;
+            document.getElementById('icon-vol-on').style.display  = muted ? 'none' : '';
+            document.getElementById('icon-vol-off').style.display = muted ? '' : 'none';
+            if (!muted) document.getElementById('vol-slider').value = p.volume;
+        }
+        function toggleMute() {
+            if (activeVideoMode === 'vimeo') return;
+            const p = document.getElementById('main-player');
+            p.muted = !p.muted;
+            if (!p.muted && p.volume === 0) { p.volume = 1; document.getElementById('vol-slider').value = 1; }
+            syncVolIcons();
+        }
+        function setVolume(val) {
+            if (activeVideoMode === 'vimeo') return;
+            const p = document.getElementById('main-player');
+            p.volume = parseFloat(val);
+            p.muted = (parseFloat(val) === 0);
+            syncVolIcons();
+        }
+        function togglePlay() {
+            if (activeVideoMode === 'vimeo') return;
+            const p = document.getElementById('main-player');
+            if (p.paused) {
+                if (p.currentTime >= p.duration - 0.1) p.currentTime = 0;
+                p.play().catch(() => {});
+            } else {
+                p.pause();
+            }
+        }
+        function seekVideo(e) {
+            if (activeVideoMode === 'vimeo') return;
+            const p = document.getElementById('main-player');
+            const track = document.getElementById('progress-track');
+            const rect = track.getBoundingClientRect();
+            const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+            if (p.duration) p.currentTime = pct * p.duration;
+        }
+        function toggleFullscreen() {
+            const wrapper = document.getElementById('player-wrapper');
+            const player  = document.getElementById('main-player');
+            const isFS = !!(document.fullscreenElement || document.webkitFullscreenElement);
+            if (isFS) {
+                if (document.exitFullscreen)            document.exitFullscreen();
+                else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+            } else if (activeVideoMode === 'vimeo') {
+                if (wrapper.requestFullscreen)             wrapper.requestFullscreen().catch(() => {});
+                else if (wrapper.webkitRequestFullscreen)  wrapper.webkitRequestFullscreen();
+            } else {
+                if (wrapper.requestFullscreen) {
+                    wrapper.requestFullscreen().catch(() => {
+                        if (player.webkitEnterFullscreen) player.webkitEnterFullscreen();
+                    });
+                } else if (wrapper.webkitRequestFullscreen) {
+                    wrapper.webkitRequestFullscreen();
+                } else if (player.webkitEnterFullscreen) {
+                    player.webkitEnterFullscreen();
+                }
+            }
+        }
+        function formatTime(s) {
+            if (!isFinite(s)) return '0:00';
+            const m = Math.floor(s / 60);
+            return m + ':' + String(Math.floor(s % 60)).padStart(2, '0');
+        }
+
+        // ── Player UI setup ───────────────────────────────────────────────
+        (function setupPlayerUI() {
+            const p       = document.getElementById('main-player');
+            const wrapper = document.getElementById('player-wrapper');
+            const bar     = document.getElementById('ctrl-bar');
+            let hideTimer = null;
+
+            function syncIcons() {
+                if (activeVideoMode === 'vimeo') return;
+                document.getElementById('icon-play').style.display  = p.paused  ? '' : 'none';
+                document.getElementById('icon-pause').style.display = !p.paused ? '' : 'none';
+            }
+            p.addEventListener('play',  syncIcons);
+            p.addEventListener('pause', syncIcons);
+            p.addEventListener('volumechange', syncVolIcons);
+            syncVolIcons();
+
+            function showBar() {
+                if (activeVideoMode === 'vimeo') return;
+                bar.classList.add('visible');
+                wrapper.classList.remove('hide-cursor');
+                clearTimeout(hideTimer);
+            }
+            function scheduleHide() {
+                clearTimeout(hideTimer);
+                hideTimer = setTimeout(() => {
+                    if (!p.paused || isEnded) {
+                        bar.classList.remove('visible');
+                        if (document.fullscreenElement) wrapper.classList.add('hide-cursor');
+                    }
+                }, 2000);
+            }
+
+            wrapper.addEventListener('mousemove', () => { showBar(); scheduleHide(); });
+            wrapper.addEventListener('mouseleave', () => { if (!p.paused) scheduleHide(); });
+
+            let _tapCount = 0, _tapTimer = null;
+            wrapper.addEventListener('click', () => {
+                if (activeVideoMode === 'vimeo') return;
+                _tapCount++;
+                if (_tapCount === 1) {
+                    _tapTimer = setTimeout(() => {
+                        _tapCount = 0;
+                        togglePlay();
+                        showBar(); scheduleHide();
+                    }, 280);
+                } else {
+                    clearTimeout(_tapTimer);
+                    _tapCount = 0;
+                    toggleFullscreen();
+                    showBar(); scheduleHide();
+                }
+            });
+
+            let isEnded = false;
+            p.addEventListener('ended', () => { isEnded = true; showBar(); scheduleHide(); });
+            p.addEventListener('pause', () => { if (!isEnded) { showBar(); clearTimeout(hideTimer); } });
+            p.addEventListener('play',  () => { isEnded = false; showBar(); scheduleHide(); });
+
+            function onFSChange() {
+                const isFS = !!(document.fullscreenElement || document.webkitFullscreenElement);
+                document.getElementById('icon-fs-expand').style.display = isFS ? 'none' : '';
+                document.getElementById('icon-fs-shrink').style.display = isFS ? '' : 'none';
+                if (activeVideoMode !== 'vimeo') { showBar(); if (!p.paused) scheduleHide(); }
+            }
+            document.addEventListener('fullscreenchange',       onFSChange);
+            document.addEventListener('webkitfullscreenchange', onFSChange);
+
+            p.addEventListener('webkitbeginfullscreen', () => {
+                document.getElementById('icon-fs-expand').style.display = 'none';
+                document.getElementById('icon-fs-shrink').style.display = '';
+            });
+            p.addEventListener('webkitendfullscreen', () => {
+                document.getElementById('icon-fs-expand').style.display = '';
+                document.getElementById('icon-fs-shrink').style.display = 'none';
+            });
+
+            (function rafLoop() {
+                if (activeVideoMode === 'mp4' && p.duration) {
+                    document.getElementById('progress-fill').style.width =
+                        (p.currentTime / p.duration * 100).toFixed(4) + '%';
+                    document.getElementById('time-display').textContent =
+                        formatTime(p.currentTime) + ' / ' + formatTime(p.duration);
+                }
+                requestAnimationFrame(rafLoop);
+            })();
+        })();
+
+        // Resume MP4 when tab comes back to foreground
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden && activeVideoMode === 'mp4') {
+                const p = document.getElementById('main-player');
+                if (p && p.paused) p.play().catch(() => {});
+            }
+        });
+
+        renderLangs();
+        renderNav();
+        loadCategory(activeCat);
+    </script>
+</body>
+</html>
