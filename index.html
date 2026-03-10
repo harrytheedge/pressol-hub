@@ -1,6 +1,14 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-B8MFN67XCR"></script>
+    <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){dataLayer.push(arguments);}
+        gtag('js', new Date());
+        gtag('config', 'G-B8MFN67XCR');
+    </script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>PRESSOL Hub</title>
@@ -750,6 +758,15 @@
         function switchVideo(id, isAuto = false) {
             const isVimeo = !!vimeoMap[id];
             activeVideoMode = isVimeo ? 'vimeo' : 'mp4';
+
+            // GA4 Event
+            if (!isAuto && typeof gtag === 'function') {
+                gtag('event', 'video_play', {
+                    video_id: id,
+                    video_type: isVimeo ? 'vimeo' : 'mp4',
+                    language: activeLang
+                });
+            }
 
             const player  = document.getElementById('main-player');
             const vimeoEl = document.getElementById('vimeo-player');
